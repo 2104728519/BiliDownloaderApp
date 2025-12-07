@@ -50,13 +50,6 @@
 *   **异步处理**: Kotlin Coroutines + Flow
 *   **导航**: Jetpack Navigation Compose
 
-## 📱 截图预览
-
-| 首页 / 解析 | 历史记录 | 音频列表 | 音频裁剪 |
-|:---:|:---:|:---:|:---:|
-| ![Home](screenshots/home.jpg) | ![History](screenshots/history.jpg) | ![List](screenshots/list.jpg) | ![Crop](screenshots/crop.jpg) |
-
-*(注：请在项目根目录创建 screenshots 文件夹并放入对应截图，或删除此部分)*
 
 ## 📂 项目结构
 
