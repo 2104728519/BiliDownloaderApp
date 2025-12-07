@@ -1,5 +1,5 @@
 # BiliDownloader - B站视频下载与音频剪辑工具 📺🎵
-
+（以下内容也是由AI生成）
 一个基于 **Jetpack Compose** 和 **Material 3** 设计的现代 Android 应用。
 实现了 Bilibili 视频解析、WBI 签名加密、音视频合并下载、历史记录管理以及本地音频裁剪功能。
 

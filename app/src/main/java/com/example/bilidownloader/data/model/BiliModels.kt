@@ -45,19 +45,23 @@ data class PageData(
 )
 
 // ------------------------------------------------
-// 4. 这里的盒子是为了装【播放地址 API】的数据
-// 这是我们最终想要的东西！
+// 4. 播放地址 (升级版)
 data class PlayData(
-    val dash: DashInfo? // DASH 格式的信息（高画质通常都在这里）
+    val dash: DashInfo?, // DASH 格式 (高画质用)
+    val durl: List<DurlInfo>? // 【新增】MP4 格式 (转写用)
+)
+
+data class DurlInfo(
+    val url: String // MP4 直链
 )
 
 data class DashInfo(
-    val video: List<MediaInfo>, // 视频流列表（可能有多条，不同画质）
-    val audio: List<MediaInfo>? // 音频流列表（可能有多条，不同音质）
+    val video: List<MediaInfo>,
+    val audio: List<MediaInfo>?
 )
 
 data class MediaInfo(
-    val id: Int,        // 格式ID（比如 80 代表 1080P）
-    val baseUrl: String, // 【关键】这就是真正的下载链接！
-    val bandwidth: Long  // 带宽，数字越大画质/音质越好
+    val id: Int,
+    val baseUrl: String,
+    val bandwidth: Long
 )

@@ -1,9 +1,20 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.jetbrainsKotlinAndroid)
     // 【新增】KSP 插件，用来自动生成数据库代码
     id("com.google.devtools.ksp") version "1.9.21-1.0.15"
 }
+
+// 读取 local.properties 文件
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+
 
 android {
     namespace = "com.example.bilidownloader"
@@ -13,14 +24,18 @@ android {
         applicationId = "com.example.bilidownloader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
 
         }
+
+        // 把密钥设置成 BuildConfig 的字段
+        buildConfigField("String", "OSS_KEY_ID", "\"${localProperties.getProperty("OSS_ACCESS_KEY_ID") ?: ""}\"")
+        buildConfigField("String", "OSS_KEY_SECRET", "\"${localProperties.getProperty("OSS_ACCESS_KEY_SECRET") ?: ""}\"")
     }
 
     buildTypes {
@@ -41,6 +56,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true // 【关键改动】在这里启用 BuildConfig
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.12"
@@ -70,6 +86,8 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+    // 【新增】添加 Material Icons 扩展库
+    implementation("androidx.compose.material:material-icons-extended-android:1.6.7")
     // 1. 网络请求三剑客 (Retrofit + OkHttp + Gson)
     // 【解释】Retrofit 是管事的包工头，OkHttp 是底层干苦力的搬砖工，Gson 是负责把数据翻译成 Kotlin 对象的翻译官。
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
@@ -86,4 +104,7 @@ dependencies {
     ksp("androidx.room:room-compiler:$room_version") // 代码生成器
     // Jetpack Compose 导航库 (负责页面跳转)
     implementation("androidx.navigation:navigation-compose:2.7.7")
+    // 阿里云 OSS SDK
+    implementation("com.aliyun.dpa:oss-android-sdk:2.9.19")
+
 }

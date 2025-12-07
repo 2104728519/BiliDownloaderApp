@@ -1,25 +1,37 @@
 package com.example.bilidownloader.data.api
 
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
-/**
- * 这里是“快递办事处”
- * 负责制造出可以在上面干活的“快递员”
- */
 object RetrofitClient {
 
-    // B 站 API 的大本营地址
-    private const val BASE_URL = "https://api.bilibili.com/"
+    // ===========================
+    // 1. B 站 API 配置
+    // ===========================
+    private const val BILI_BASE_URL = "https://api.bilibili.com/"
 
-    // 创建一个 Retrofit 实例
-    // 就像是装修好了办事处，配好了电话线（BaseUrl）和翻译机（Gson）
-    private val retrofit = Retrofit.Builder()
-        .baseUrl(BASE_URL)
-        .addConverterFactory(GsonConverterFactory.create()) // 自动把 JSON 转成 Kotlin 对象
+    private val biliRetrofit = Retrofit.Builder()
+        .baseUrl(BILI_BASE_URL)
+        .addConverterFactory(GsonConverterFactory.create())
+        .client(OkHttpClient.Builder().build())
         .build()
 
-    // 创建一个可以直接调用的服务实例
-    // 以后我们要发请求，直接调用 RetrofitClient.service.xxx() 就可以了
-    val service: BiliApiService = retrofit.create(BiliApiService::class.java)
+    // 暴露给外部使用的 B 站接口 (MainViewModel 用这个)
+    val service: BiliApiService = biliRetrofit.create(BiliApiService::class.java)
+
+
+    // ===========================
+    // 2. 阿里云百炼 API 配置
+    // ===========================
+    private const val ALIYUN_BASE_URL = "https://dashscope.aliyuncs.com/"
+
+    private val aliyunRetrofit = Retrofit.Builder()
+        .baseUrl(ALIYUN_BASE_URL)
+        .addConverterFactory(GsonConverterFactory.create())
+        .client(OkHttpClient.Builder().build())
+        .build()
+
+    // 暴露给外部使用的阿里云接口 (TranscriptionViewModel 用这个)
+    val aliyunService: AliyunApiService = aliyunRetrofit.create(AliyunApiService::class.java)
 }
