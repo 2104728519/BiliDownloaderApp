@@ -1,6 +1,6 @@
 package com.example.bilidownloader.ui.screen
 
-import android.widget.Toast // 【新增导入】
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -11,7 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext // 【新增导入】
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -22,36 +22,43 @@ import com.example.bilidownloader.ui.viewmodel.AudioCropViewModel
 fun AudioCropScreen(
     audioUri: String,
     onBack: () -> Unit,
-    viewModel: AudioCropViewModel = viewModel() // 注入车间主任
+    viewModel: AudioCropViewModel = viewModel() // 注入 ViewModel
 ) {
-    val context = LocalContext.current // 【新增】获取 Context
+    val context = LocalContext.current
 
-    // 1. 监听主任给的数据
+    // 1. 从 ViewModel 收集状态
     val totalDurationMs by viewModel.totalDuration.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
-    val saveState by viewModel.saveState.collectAsState() // 【新增】监听保存状态
+    val saveState by viewModel.saveState.collectAsState()
 
-    // 2. 页面启动时，加载音频
+    // 2. 页面首次加载时，请求 ViewModel 加载音频信息
     LaunchedEffect(Unit) {
         viewModel.loadAudioInfo(audioUri)
     }
 
-    // 3. 滑块状态 (默认选中中间一段)
-    var sliderPosition by remember { mutableStateOf(0.2f..0.8f) }
+    // 【新增】监听页面销毁事件
+    // 当用户点击返回键，或者从底部导航栏切换到其他页面时，这个 Composable 会被销毁，
+    // onDispose 代码块会被触发。
+    DisposableEffect(Unit) {
+        onDispose {
+            // 确保在离开页面时，强制停止任何正在播放的音频，以防止内存泄漏和崩溃。
+            viewModel.stopAudio()
+        }
+    }
 
-    // 【新增状态】控制弹窗显示
+    // 3. UI 内部状态
+    var sliderPosition by remember { mutableStateOf(0.2f..0.8f) }
     var showDialog by remember { mutableStateOf(false) }
-    // 【新增状态】用户输入的文件名
     var saveFileName by remember { mutableStateOf("") }
 
-    // 【新增】监听保存结果
+    // 4. 监听保存状态的变化，并给出用户反馈
     LaunchedEffect(saveState) {
         when (saveState) {
             2 -> { // 成功
                 Toast.makeText(context, "保存成功！", Toast.LENGTH_SHORT).show()
                 viewModel.resetSaveState()
                 showDialog = false
-                onBack() // 保存成功后直接退出页面
+                onBack() // 保存成功后自动返回上一页
             }
             3 -> { // 失败
                 Toast.makeText(context, "保存失败，请重试", Toast.LENGTH_SHORT).show()
@@ -60,17 +67,17 @@ fun AudioCropScreen(
         }
     }
 
-    // 辅助函数：格式化时间
+    // 辅助函数：将时长（毫秒）格式化为 "mm:ss" 字符串
     fun formatTime(ratio: Float): String {
-        // 如果还没加载好 (total=0)，就显示 00:00
         if (totalDurationMs == 0L) return "00:00"
-
         val ms = (totalDurationMs * ratio).toLong()
-        val s = ms / 1000
-        return String.format("%02d:%02d", s / 60, s % 60)
+        val totalSeconds = ms / 1000
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return String.format("%02d:%02d", minutes, seconds)
     }
 
-    // === 【新增】保存文件名的弹窗 ===
+    // === 【UI】保存文件名的弹窗 ===
     if (showDialog) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
@@ -92,21 +99,18 @@ fun AudioCropScreen(
                 Button(
                     onClick = {
                         if (saveFileName.isNotBlank()) {
-                            // 调用 ViewModel 开始保存
                             viewModel.saveCroppedAudio(
                                 saveFileName,
                                 sliderPosition.start,
                                 sliderPosition.endInclusive
                             )
                         } else {
-                            // 防止空名字
                             Toast.makeText(context, "文件名不能为空", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    enabled = saveState != 1 // 如果正在保存中，按钮禁用
+                    enabled = saveState != 1 // 正在保存时禁用按钮
                 ) {
-                    if (saveState == 1) {
-                        // 正在保存时显示进度圈
+                    if (saveState == 1) { // 正在保存时显示加载动画
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             color = MaterialTheme.colorScheme.onPrimary,
@@ -126,6 +130,7 @@ fun AudioCropScreen(
     }
 
 
+    // === 【UI】主界面布局 ===
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -136,15 +141,12 @@ fun AudioCropScreen(
                     }
                 },
                 actions = {
-                    // 【修改】保存按钮点击事件
                     TextButton(
                         onClick = {
-                            // 默认名字使用时间戳，方便识别
                             saveFileName = "Crop_${System.currentTimeMillis()}"
-                            showDialog = true // 显示弹窗
+                            showDialog = true
                         },
-                        // 只有加载完成且当前不在保存中，才能保存
-                        enabled = totalDurationMs > 0 && saveState != 1
+                        enabled = totalDurationMs > 0 && saveState != 1 // 加载完成且不在保存中才可点击
                     ) {
                         Text("保存", fontWeight = FontWeight.Bold)
                     }
@@ -164,10 +166,10 @@ fun AudioCropScreen(
             verticalArrangement = Arrangement.SpaceBetween
         ) {
 
-            // === 上部 ===
+            // 上部：图标和状态
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
-                    imageVector = Icons.Default.Check, // 依然先用 Check
+                    imageVector = Icons.Default.Check,
                     contentDescription = null,
                     modifier = Modifier.size(100.dp),
                     tint = MaterialTheme.colorScheme.primary
@@ -179,7 +181,7 @@ fun AudioCropScreen(
                 )
             }
 
-            // === 中部：滑块区 ===
+            // 中部：滑块和时间显示
             Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -205,43 +207,35 @@ fun AudioCropScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 只有加载完成了才允许拖动
                 if (totalDurationMs > 0) {
                     RangeSlider(
                         value = sliderPosition,
                         onValueChange = { range ->
-                            // 限制：最少保留 1 秒 (0.01f 约等于 1% 的总时长)
-                            if (range.endInclusive - range.start > 0.01f) {
-                                sliderPosition = range
-                            }
+                            sliderPosition = range
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
-
                     Text(
                         text = "选中时长: ${formatTime(sliderPosition.endInclusive - sliderPosition.start)}",
                         modifier = Modifier.align(Alignment.CenterHorizontally),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 } else {
-                    // 加载中显示个进度条
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
 
-            // === 下部：播放控制 ===
+            // 下部：播放控制按钮
             FilledTonalIconButton(
                 onClick = {
-                    // 点击播放/暂停
                     viewModel.playRegion(sliderPosition.start, sliderPosition.endInclusive)
                 },
                 modifier = Modifier.size(64.dp),
-                enabled = totalDurationMs > 0 // 加载好之前不能点
+                enabled = totalDurationMs > 0 // 加载完成才能播放
             ) {
                 Icon(
-                    // 正在播放显示 X (暂停)，暂停显示三角形 (播放)
                     imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
-                    contentDescription = "试听",
+                    contentDescription = if (isPlaying) "停止试听" else "试听",
                     modifier = Modifier.size(32.dp)
                 )
             }
