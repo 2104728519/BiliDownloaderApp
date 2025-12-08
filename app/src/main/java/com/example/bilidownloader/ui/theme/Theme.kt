@@ -40,16 +40,17 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun BiliDownloaderTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
+    // Android 12+ (SDK 31+) 自动开启动态取色
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
+        // 核心逻辑：如果是 Android 12+ 且开启了动态取色，则使用系统生成的配色方案
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-
+        // 否则使用默认定义的配色 (兼容旧版本 Android)
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
@@ -57,14 +58,19 @@ fun BiliDownloaderTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+            // 【修改点1】将状态栏颜色设置为背景色，而不是主色，看起来更现代
+            window.statusBarColor = colorScheme.background.toArgb()
+
+            // 【修改点2】修正图标颜色逻辑
+            // 如果是深色模式 (darkTheme=true)，背景是暗的，图标要是亮的 (isAppearanceLightStatusBars=false)
+            // 如果是浅色模式 (darkTheme=false)，背景是亮的，图标要是暗的 (isAppearanceLightStatusBars=true)
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = Typography, // 确保你有定义 Typography
         content = content
     )
 }
