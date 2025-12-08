@@ -19,12 +19,23 @@ import kotlinx.coroutines.launch
 class AudioPickerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = MediaRepository(application)
+
+    // UI 观察的列表（可能是经过筛选的）
     private val _audioList = MutableStateFlow<List<AudioEntity>>(emptyList())
     val audioList = _audioList.asStateFlow()
+
+    // 【新增】原始完整列表缓存 (用于搜索时回退)
+    private var allAudiosCache: List<AudioEntity> = emptyList()
+
+    // 【新增】当前搜索词 (用于排序时保持筛选状态)
+    private var currentQuery: String = ""
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
+
     var scrollIndex: Int = 0
     var scrollOffset: Int = 0
+
     private var currentSortType = SortType.DATE
 
     enum class SortType { DATE, SIZE, DURATION }
@@ -39,23 +50,49 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
     private var lastRenameNewName: String? = null
     private enum class ActionType { DELETE, RENAME }
 
-    // --- 未修改的方法 ---
+
     fun loadAudios() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
                 val list = repository.getAllAudio()
+                // 【修改】保存到缓存，并重置搜索
+                allAudiosCache = list
+                currentQuery = ""
                 _audioList.value = sortList(list, currentSortType)
             } catch (e: Exception) {
                 e.printStackTrace()
+                _audioList.value = emptyList()
+                allAudiosCache = emptyList() // 确保缓存也清空
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
+    /**
+     * 【新增】搜索音频
+     */
+    fun searchAudio(query: String) {
+        currentQuery = query
+        val listToFilter = allAudiosCache
+
+        val filteredList = if (query.isBlank()) {
+            // 如果搜索词为空，恢复显示所有缓存数据
+            listToFilter
+        } else {
+            // 否则，过滤缓存数据 (忽略大小写)
+            listToFilter.filter {
+                it.title.contains(query, ignoreCase = true)
+            }
+        }
+        // 对过滤后的结果应用当前排序
+        _audioList.value = sortList(filteredList, currentSortType)
+    }
+
     fun changeSortType(type: SortType) {
         currentSortType = type
+        // 【修改】排序时，对当前显示的列表（可能是已筛选的）进行排序
         _audioList.value = sortList(_audioList.value, type)
     }
 
@@ -70,7 +107,6 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
     fun permissionRequestHandled() {
         pendingPermissionIntent = null
     }
-    // --- ---
 
     fun deleteSelectedAudio() {
         val audio = selectedAudioForAction ?: return
@@ -117,51 +153,50 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    /**
-     * 【关键修改】当用户在系统弹窗点了“允许”后的回调
-     */
     fun onPermissionGranted() {
         val audio = selectedAudioForAction ?: return
 
         viewModelScope.launch {
             if (lastAction == ActionType.DELETE) {
-                // ★ 针对 Android 11+ (R) 的特殊处理
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    // Android 11+ 系统在用户点击“允许”时，已经自动删除了文件
-                    // 所以我们不需要(也不能)再次调用 delete，否则会报错或返回失败
-
-                    // 我们只需验证文件是否真的没了
-                    // 稍作延迟以确保系统有时间完成删除操作
                     kotlinx.coroutines.delay(200)
                     val exists = StorageHelper.isFileExisting(getApplication(), audio.uri)
-
                     if (!exists) {
-                        // 文件没了，说明系统删除成功 -> 更新 UI
                         handleStorageResult(StorageHelper.StorageResult.Success)
                     } else {
-                        // 文件还在，说明出问题了，按失败处理
                         handleStorageResult(StorageHelper.StorageResult.Error)
                     }
                 } else {
-                    // Android 10 (Q) 及以下，需要 APP 自己再动手删一次
                     deleteSelectedAudio()
                 }
-            }
-            else if (lastAction == ActionType.RENAME) {
-                // 重命名操作，无论哪个版本，获得权限后都需要 App 自己去执行 update
+            } else if (lastAction == ActionType.RENAME) {
                 lastRenameNewName?.let { renameSelectedAudio(it) }
             }
         }
     }
 
+    /**
+     * 【修改】更新内存数据
+     * 必须同时更新 _audioList (UI显示用) 和 allAudiosCache (搜索缓存用)
+     */
     private fun updateListInMemory() {
-        val audio = selectedAudioForAction ?: return
+        val audioToUpdate = selectedAudioForAction ?: return
+
         if (lastAction == ActionType.DELETE) {
-            _audioList.value = _audioList.value.filter { it.id != audio.id }
+            // 1. 更新缓存：从总列表移除
+            allAudiosCache = allAudiosCache.filter { it.id != audioToUpdate.id }
+            // 2. 更新UI：从当前显示列表移除
+            _audioList.value = _audioList.value.filter { it.id != audioToUpdate.id }
         } else if (lastAction == ActionType.RENAME) {
             val newName = lastRenameNewName ?: return
+
+            // 1. 更新缓存
+            allAudiosCache = allAudiosCache.map {
+                if (it.id == audioToUpdate.id) it.copy(title = newName) else it
+            }
+            // 2. 更新UI
             _audioList.value = _audioList.value.map {
-                if (it.id == audio.id) it.copy(title = newName) else it
+                if (it.id == audioToUpdate.id) it.copy(title = newName) else it
             }
         }
     }
