@@ -6,11 +6,11 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.List
@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -36,6 +35,23 @@ fun AudioPickerScreen(
     val context = LocalContext.current
     val audioList by viewModel.audioList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+
+    // --- 【新增】列表滚动状态管理 ---
+    // 1. 创建 listState，并用 ViewModel 里存的值初始化
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = viewModel.scrollIndex,
+        initialFirstVisibleItemScrollOffset = viewModel.scrollOffset
+    )
+
+    // 2. 当页面离开(Dispose)时，保存当前位置到 ViewModel
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.scrollIndex = listState.firstVisibleItemIndex
+            viewModel.scrollOffset = listState.firstVisibleItemScrollOffset
+        }
+    }
+    // ---------------------------
+
 
     // 1. 准备“手动选择文件”的启动器
     val systemPickerLauncher = rememberLauncherForActivityResult(
@@ -135,6 +151,7 @@ fun AudioPickerScreen(
             } else {
                 // 音频列表
                 LazyColumn(
+                    state = listState, // 【修改】这里绑定 state
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(audioList) { audio ->

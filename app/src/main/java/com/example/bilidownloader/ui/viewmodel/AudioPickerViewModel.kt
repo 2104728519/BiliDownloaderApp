@@ -21,6 +21,13 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 
+    // --- 【新增】滚动位置记录 ---
+    // 记录列表第一个可见项目的索引
+    var scrollIndex: Int = 0
+    // 记录列表第一个可见项目的偏移量
+    var scrollOffset: Int = 0
+    // -------------------------
+
     // 3. 当前的排序方式 (默认按时间)
     private var currentSortType = SortType.DATE
 
