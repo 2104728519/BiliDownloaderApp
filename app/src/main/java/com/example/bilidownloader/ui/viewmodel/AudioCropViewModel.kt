@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URLDecoder
 
-class AudioCropViewModel(application: Application) : AndroidViewModel(application) {
+class AudioCropViewModel(application : Application) : AndroidViewModel(application) {
 
     // 1. 状态变量
     private val _totalDuration = MutableStateFlow(0L)
@@ -26,6 +26,10 @@ class AudioCropViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying = _isPlaying.asStateFlow()
+
+    // 【新增】当前播放进度 (毫秒)
+    private val _currentPosition = MutableStateFlow(0L)
+    val currentPosition = _currentPosition.asStateFlow()
 
     // 保存状态：0=空闲, 1=正在保存, 2=成功, 3=失败
     private val _saveState = MutableStateFlow(0)
@@ -37,37 +41,32 @@ class AudioCropViewModel(application: Application) : AndroidViewModel(applicatio
     private var mediaPlayer: MediaPlayer? = null
     private var playbackJob: Job? = null
 
+
     /**
-     * 【新增】安全地停止音频播放
-     * 严格遵循“先取消协程，再操作播放器”的原则，防止多线程冲突。
+     * 【修改】安全地停止音频播放
+     * 同时取消协程、暂停播放器并重置进度
      */
     fun stopAudio() {
-        // 1. 立即取消正在运行的播放监控协程
         playbackJob?.cancel()
         playbackJob = null
 
-        // 2. 在 try-catch 块中安全地暂停播放器
         try {
             if (mediaPlayer?.isPlaying == true) {
                 mediaPlayer?.pause()
             }
         } catch (e: IllegalStateException) {
-            // 忽略错误，因为播放器可能已经被释放了，这是预期的行为
-            println("MediaPlayer was already released. Safe to ignore.")
             e.printStackTrace()
         }
 
-        // 3. 更新 UI 状态
         _isPlaying.value = false
+        _currentPosition.value = 0L // 重置进度显示
     }
 
     /**
      * 加载音频信息
-     * @param pathStr 编码后的文件路径
      */
     fun loadAudioInfo(pathStr: String) {
-        // 【关键改进】加载新文件前，先调用安全停止方法，彻底清理上一个音频的状态
-        stopAudio()
+        stopAudio() // 加载前先清理旧状态
 
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -75,29 +74,20 @@ class AudioCropViewModel(application: Application) : AndroidViewModel(applicatio
                     val filePath = URLDecoder.decode(pathStr, "UTF-8")
                     sourceFilePath = filePath
                     val file = File(filePath)
+                    if (!file.exists()) return@withContext
 
-                    if (!file.exists()) {
-                        println("Error: Audio file does not exist at path: $filePath")
-                        return@withContext
-                    }
-
-                    // 获取音频总时长
                     val retriever = MediaMetadataRetriever()
                     retriever.setDataSource(file.absolutePath)
-                    val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
                     retriever.release()
-
-                    val duration = durationStr?.toLong() ?: 0L
                     _totalDuration.value = duration
 
-                    // 初始化一个新的 MediaPlayer 实例
-                    mediaPlayer?.release() // 再次确保旧实例被释放
+                    mediaPlayer?.release()
                     mediaPlayer = MediaPlayer().apply {
                         setDataSource(file.absolutePath)
                         prepare()
                     }
                 } catch (e: Exception) {
-                    println("Error loading audio info: ${e.message}")
                     e.printStackTrace()
                 }
             }
@@ -105,23 +95,20 @@ class AudioCropViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * 播放指定的音频片段
-     * @param startRatio 开始位置的比例 (0.0 to 1.0)
-     * @param endRatio 结束位置的比例 (0.0 to 1.0)
+     * 【修改】播放指定的音频片段，并实时更新进度
      */
     fun playRegion(startRatio: Float, endRatio: Float) {
         val player = mediaPlayer ?: return
         val total = _totalDuration.value
         if (total == 0L) return
 
-        val startMs = (total * startRatio).toLong()
-        val endMs = (total * endRatio).toLong()
-
-        // 如果当前正在播放，则调用安全停止方法；否则，开始播放
         if (_isPlaying.value) {
             stopAudio()
             return
         }
+
+        val startMs = (total * startRatio).toLong()
+        val endMs = (total * endRatio).toLong()
 
         viewModelScope.launch {
             try {
@@ -129,34 +116,30 @@ class AudioCropViewModel(application: Application) : AndroidViewModel(applicatio
                 player.start()
                 _isPlaying.value = true
 
-                // 【改进】启动监控协程前，再次确保旧的已被取消
                 playbackJob?.cancel()
                 playbackJob = launch {
-                    // 使用 isActive 检查可以确保协程在被外部取消时能及时退出循环
                     while (isActive && player.isPlaying) {
-                        if (player.currentPosition >= endMs) {
-                            // 到达终点，自动停止
+                        val current = player.currentPosition.toLong()
+                        _currentPosition.value = current // 【新增】更新播放进度
+
+                        if (current >= endMs) {
                             stopAudio()
                             break
                         }
-                        delay(100)
+                        delay(50) // 每 50 毫秒更新一次
                     }
-                    // 循环结束后（可能因为播放完毕或出错），确保状态为未播放
                     _isPlaying.value = false
                 }
             } catch (e: Exception) {
-                println("Error playing audio region: ${e.message}")
                 e.printStackTrace()
-                stopAudio() // 如果在播放过程中发生任何异常，都强制停止
+                stopAudio()
             }
         }
     }
 
+
     /**
-     * 执行裁剪并保存到系统音乐库
-     * @param fileName 用户指定的输出文件名
-     * @param startRatio 裁剪开始比例
-     * @param endRatio 裁剪结束比例
+     * 执行裁剪并保存
      */
     fun saveCroppedAudio(fileName: String, startRatio: Float, endRatio: Float) {
         val path = sourceFilePath ?: return
@@ -164,7 +147,7 @@ class AudioCropViewModel(application: Application) : AndroidViewModel(applicatio
         if (total == 0L) return
 
         viewModelScope.launch(Dispatchers.IO) {
-            _saveState.value = 1 // 状态：正在保存
+            _saveState.value = 1
             try {
                 val context = getApplication<Application>()
                 val cacheDir = context.cacheDir
@@ -182,32 +165,24 @@ class AudioCropViewModel(application: Application) : AndroidViewModel(applicatio
                 val saveSuccess = StorageHelper.saveAudioToMusic(context, outFile, finalName)
 
                 if (saveSuccess) {
-                    _saveState.value = 2 // 状态：成功
+                    _saveState.value = 2
                 } else {
                     throw Exception("Failed to save audio to the music library")
                 }
-
-                outFile.delete() // 清理临时文件
+                outFile.delete()
             } catch (e: Exception) {
                 e.printStackTrace()
-                _saveState.value = 3 // 状态：失败
+                _saveState.value = 3
             }
         }
     }
 
-    /**
-     * 重置保存状态，以便 UI 可以响应下一次操作
-     */
     fun resetSaveState() {
         _saveState.value = 0
     }
 
-    /**
-     * ViewModel 销毁时被调用，是释放资源的最后时机
-     */
     override fun onCleared() {
         super.onCleared()
-        // 【关键改进】在 ViewModel 销毁时，调用安全停止方法并彻底释放播放器
         stopAudio()
         mediaPlayer?.release()
         mediaPlayer = null
