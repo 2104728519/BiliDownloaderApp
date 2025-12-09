@@ -25,7 +25,7 @@ interface BiliApiService {
     // 2. 【替换】获取视频详细信息 (标题、封面、CID等)
     // 这个接口比原来的 pagelist 提供了更多的视频信息。
     @Headers(
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
     )
     @GET("x/web-interface/view")

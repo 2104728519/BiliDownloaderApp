@@ -4,8 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState // 【导入】
-import androidx.compose.foundation.verticalScroll // 【导入】
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -18,6 +18,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.bilidownloader.data.database.HistoryEntity
 import com.example.bilidownloader.ui.components.BiliWebPlayer
 import com.example.bilidownloader.ui.components.HistoryItem
+import com.example.bilidownloader.ui.state.FormatOption
 import com.example.bilidownloader.ui.state.MainState
 import com.example.bilidownloader.ui.viewmodel.MainViewModel
 
@@ -25,7 +26,7 @@ import com.example.bilidownloader.ui.viewmodel.MainViewModel
 @Composable
 fun HomeScreen(
     viewModel: MainViewModel = viewModel(),
-    onNavigateToTranscribe: (String) -> Unit // 回调：要去转写页了，带上路径
+    onNavigateToTranscribe: (String) -> Unit
 ) {
     val state by viewModel.state.collectAsState()
     val historyList by viewModel.historyList.collectAsState()
@@ -76,7 +77,6 @@ fun HomeScreen(
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-
             if (state is MainState.Idle && !isSelectionMode) {
                 OutlinedTextField(
                     value = inputText,
@@ -155,7 +155,6 @@ fun HomeScreen(
                         }
                     }
                 }
-
                 is MainState.Analyzing -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -166,40 +165,64 @@ fun HomeScreen(
                     }
                 }
 
-                // 3. 选择状态
+                // 3. 选择状态 (重大更新)
                 is MainState.ChoiceSelect -> {
-
-                    // 【关键修改】加一层可滚动的 Column
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()), // 允许垂直滚动
+                            .verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-
-                        // --- 原来的内容放里面 ---
-
                         // 1. 播放器
-                        com.example.bilidownloader.ui.components.BiliWebPlayer(bvid = currentState.detail.bvid)
+                        BiliWebPlayer(bvid = currentState.detail.bvid)
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // 2. 标题和作者
+                        // 2. 信息
                         Text(
                             text = currentState.detail.title,
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(horizontal = 8.dp)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "UP主: ${currentState.detail.owner.name}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.secondary
                         )
 
-                        Spacer(modifier = Modifier.height(32.dp))
+                        Spacer(modifier = Modifier.height(24.dp))
 
-                        // 3. 各种按钮
+                        // 3. 【新功能】下载选项卡
+                        OutlinedCard(
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("下载选项", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                // 视频画质选择器
+                                QualitySelector(
+                                    label = "视频画质",
+                                    options = currentState.videoFormats,
+                                    selectedOption = viewModel.selectedVideoOption,
+                                    onOptionSelected = { viewModel.updateSelectedVideo(it) }
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                // 音频音质选择器
+                                QualitySelector(
+                                    label = "音频音质",
+                                    options = currentState.audioFormats,
+                                    selectedOption = viewModel.selectedAudioOption,
+                                    onOptionSelected = { viewModel.updateSelectedAudio(it) }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // 4. 按钮
                         Button(
                             onClick = { viewModel.startDownload(audioOnly = false) },
                             modifier = Modifier.fillMaxWidth()
@@ -207,7 +230,7 @@ fun HomeScreen(
                             Text("下载视频 (MP4)")
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         OutlinedButton(
                             onClick = { viewModel.startDownload(audioOnly = true) },
@@ -216,9 +239,9 @@ fun HomeScreen(
                             Text("仅下载音频 (MP3)")
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                        // 新增的转写按钮
+                        // 转写按钮
                         Button(
                             onClick = {
                                 viewModel.prepareForTranscription { path ->
@@ -227,30 +250,29 @@ fun HomeScreen(
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                         ) {
-                            Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Edit,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("AI 音频转文字")
                         }
+                        Text(
+                            text = "转写将自动使用最高音质以确保准确率",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // 4. 取消按钮 (现在可以滑到底部看见它了)
                         TextButton(
                             onClick = { viewModel.reset() },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("取消")
                         }
-
-                        // 底部留点白，防止贴边
                         Spacer(modifier = Modifier.height(24.dp))
                     }
                 }
@@ -266,7 +288,6 @@ fun HomeScreen(
                         }
                     }
                 }
-
                 is MainState.Success -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -279,7 +300,6 @@ fun HomeScreen(
                         }
                     }
                 }
-
                 is MainState.Error -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -289,6 +309,74 @@ fun HomeScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+// 【新增组件】下拉选择框封装
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun QualitySelector(
+    label: String,
+    options: List<FormatOption>,
+    selectedOption: FormatOption?,
+    onOptionSelected: (FormatOption) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    if (options.isEmpty()){
+        OutlinedTextField(
+            value = "无可用选项",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = false
+        )
+        return
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            value = selectedOption?.label ?: "请选择...",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor()
+        )
+
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                            if (option.codecs != null) {
+                                Text(
+                                    "编码: ${option.codecs}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
+                    },
+                    onClick = {
+                        onOptionSelected(option)
+                        expanded = false
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                )
             }
         }
     }

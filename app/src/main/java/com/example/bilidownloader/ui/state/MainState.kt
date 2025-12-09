@@ -1,6 +1,17 @@
 package com.example.bilidownloader.ui.state
 
-import com.example.bilidownloader.data.model.VideoDetail // 别忘了导入这个数据模型！
+import com.example.bilidownloader.data.model.VideoDetail
+
+// 新增：用于 UI 显示的格式选项
+data class FormatOption(
+    val id: Int,          // B站的 qn (如 80, 64)
+    val label: String,    // 显示文字 "1080P (AVC) - 150MB"
+    val description: String, // 原始描述 "1080P 高清"
+    val codecs: String?,  // 编码
+    val bandwidth: Long,  // 码率
+    val estimatedSize: Long // 预估大小 (字节)
+)
+
 
 /**
  * 这里定义了 APP 所有的“生存状态”
@@ -14,9 +25,12 @@ sealed class MainState {
     // 2. 解析中：用户点击了按钮，正在去 B 站查询视频信息 (转圈圈)
     object Analyzing : MainState()
 
-    // 3. 【修改】选择状态：解析成功了，现在我们拿着详细信息给 UI 展示
-    // UI 可以根据 detail 对象显示视频标题、封面、所有分集列表等信息
-    data class ChoiceSelect(val detail: VideoDetail) : MainState()
+    // 3. 【修改】选择状态：解析成功了，现在我们拿着详细信息和可用格式列表给 UI 展示
+    data class ChoiceSelect(
+        val detail: VideoDetail,
+        val videoFormats: List<FormatOption>, // 可选视频画质
+        val audioFormats: List<FormatOption>  // 可选音频音质
+    ) : MainState()
 
     // 4. 下载/处理中：用户做出了选择，正在干活
     // info: 告诉用户当前在干嘛 (比如 "正在下载视频...", "正在合并...", "正在保存...")

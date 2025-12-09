@@ -45,14 +45,17 @@ data class PageData(
 )
 
 // ------------------------------------------------
-// 4. 播放地址 (升级版)
+// 4. 播放地址 (升级版 - 增加字段)
 data class PlayData(
-    val dash: DashInfo?, // DASH 格式 (高画质用)
-    val durl: List<DurlInfo>? // 【新增】MP4 格式 (转写用)
+    val accept_quality: List<Int>?,      // 例如: [80, 64, 32, 16]
+    val accept_description: List<String>?, // 例如: ["1080P 高清", "720P 高清", ...]
+    val dash: DashInfo?,
+    val durl: List<DurlInfo>?
 )
 
 data class DurlInfo(
-    val url: String // MP4 直链
+    val url: String,
+    val size: Long // 普通 MP4 模式也有 size
 )
 
 data class DashInfo(
@@ -61,7 +64,10 @@ data class DashInfo(
 )
 
 data class MediaInfo(
-    val id: Int,
+    val id: Int,        // 画质/音质 ID
     val baseUrl: String,
-    val bandwidth: Long
+    val bandwidth: Long, // 码率 (bps)，用于计算体积
+    val codecs: String?, // 编码格式，例如 "avc1.64001F" (H264) 或 "hev1.1.6.L120" (H265)
+    val width: Int?,    // 视频宽度
+    val height: Int?    // 视频高度
 )
