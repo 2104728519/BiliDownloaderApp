@@ -1,6 +1,8 @@
 package com.example.bilidownloader.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
 import android.content.IntentSender
 import android.os.Build
 import android.widget.Toast
@@ -24,10 +26,10 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
     private val _audioList = MutableStateFlow<List<AudioEntity>>(emptyList())
     val audioList = _audioList.asStateFlow()
 
-    // 【新增】原始完整列表缓存 (用于搜索时回退)
+    // 原始完整列表缓存 (用于搜索时回退)
     private var allAudiosCache: List<AudioEntity> = emptyList()
 
-    // 【新增】当前搜索词 (用于排序时保持筛选状态)
+    // 当前搜索词 (用于排序时保持筛选状态)
     private var currentQuery: String = ""
 
     private val _isLoading = MutableStateFlow(false)
@@ -56,43 +58,35 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
             _isLoading.value = true
             try {
                 val list = repository.getAllAudio()
-                // 【修改】保存到缓存，并重置搜索
                 allAudiosCache = list
                 currentQuery = ""
                 _audioList.value = sortList(list, currentSortType)
             } catch (e: Exception) {
                 e.printStackTrace()
                 _audioList.value = emptyList()
-                allAudiosCache = emptyList() // 确保缓存也清空
+                allAudiosCache = emptyList()
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    /**
-     * 【新增】搜索音频
-     */
     fun searchAudio(query: String) {
         currentQuery = query
         val listToFilter = allAudiosCache
 
         val filteredList = if (query.isBlank()) {
-            // 如果搜索词为空，恢复显示所有缓存数据
             listToFilter
         } else {
-            // 否则，过滤缓存数据 (忽略大小写)
             listToFilter.filter {
                 it.title.contains(query, ignoreCase = true)
             }
         }
-        // 对过滤后的结果应用当前排序
         _audioList.value = sortList(filteredList, currentSortType)
     }
 
     fun changeSortType(type: SortType) {
         currentSortType = type
-        // 【修改】排序时，对当前显示的列表（可能是已筛选的）进行排序
         _audioList.value = sortList(_audioList.value, type)
     }
 
@@ -135,7 +129,6 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
             is StorageHelper.StorageResult.Success -> {
                 Toast.makeText(getApplication(), "操作成功", Toast.LENGTH_SHORT).show()
                 updateListInMemory()
-                // 清理现场
                 selectedAudioForAction = null
                 lastAction = null
                 lastRenameNewName = null
@@ -145,7 +138,6 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
             }
             is StorageHelper.StorageResult.Error -> {
                 Toast.makeText(getApplication(), "操作失败", Toast.LENGTH_SHORT).show()
-                // 清理现场
                 selectedAudioForAction = null
                 lastAction = null
                 lastRenameNewName = null
@@ -175,29 +167,55 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    /**
-     * 【修改】更新内存数据
-     * 必须同时更新 _audioList (UI显示用) 和 allAudiosCache (搜索缓存用)
-     */
     private fun updateListInMemory() {
         val audioToUpdate = selectedAudioForAction ?: return
 
         if (lastAction == ActionType.DELETE) {
-            // 1. 更新缓存：从总列表移除
             allAudiosCache = allAudiosCache.filter { it.id != audioToUpdate.id }
-            // 2. 更新UI：从当前显示列表移除
             _audioList.value = _audioList.value.filter { it.id != audioToUpdate.id }
         } else if (lastAction == ActionType.RENAME) {
             val newName = lastRenameNewName ?: return
-
-            // 1. 更新缓存
             allAudiosCache = allAudiosCache.map {
                 if (it.id == audioToUpdate.id) it.copy(title = newName) else it
             }
-            // 2. 更新UI
             _audioList.value = _audioList.value.map {
                 if (it.id == audioToUpdate.id) it.copy(title = newName) else it
             }
+        }
+    }
+
+    /**
+     * 【新增】分享音频
+     * @param context 用来启动 Activity
+     * @param audio 要分享的音频对象
+     */
+    fun shareAudio(context: Context, audio: AudioEntity) {
+        try {
+            // 1. 创建分享意图
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                // 设置数据类型为音频
+                type = "audio/*"
+                // 放入文件的 Uri (MediaStore Uri)
+                putExtra(Intent.EXTRA_STREAM, audio.uri)
+                // ★关键：授予接收方(如QQ)读取这个 Uri 的临时权限
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            // 2. 创建系统选择器 (标题显示“分享音频到...”)
+            // 这样用户就可以选择 QQ、微信、保存到云盘等
+            val chooser = Intent.createChooser(shareIntent, "分享音频到")
+
+            // 3. 启动
+            // 如果 context 不是 Activity (比如 ApplicationContext)，需要加这个 flag
+            // 但从 UI 传进来的通常是 Activity Context，加了也不影响
+            if (context !is android.app.Activity) {
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "无法分享：找不到相关应用", Toast.LENGTH_SHORT).show()
         }
     }
 }

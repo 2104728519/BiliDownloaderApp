@@ -38,15 +38,13 @@ fun AudioPickerScreen(
     onAudioSelected: (Uri) -> Unit
 ) {
     val context = LocalContext.current
-    val focusManager = LocalFocusManager.current // 用于控制键盘收起
+    val focusManager = LocalFocusManager.current
     val audioList by viewModel.audioList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    // --- 【新增】搜索状态 ---
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // --- 权限与文件操作回调 ---
     val intentSenderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
@@ -65,14 +63,12 @@ fun AudioPickerScreen(
         }
     }
 
-    // --- 系统文件选择器 ---
     val systemPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) onAudioSelected(uri)
     }
 
-    // --- 媒体文件读取权限 ---
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -92,7 +88,6 @@ fun AudioPickerScreen(
         permissionLauncher.launch(permission)
     }
 
-    // --- 列表滚动状态保存 ---
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = viewModel.scrollIndex,
         initialFirstVisibleItemScrollOffset = viewModel.scrollOffset
@@ -109,14 +104,13 @@ fun AudioPickerScreen(
     Scaffold(
         topBar = {
             if (isSearchActive) {
-                // === 搜索模式下的 TopBar ===
                 TopAppBar(
                     title = {
                         TextField(
                             value = searchQuery,
                             onValueChange = {
                                 searchQuery = it
-                                viewModel.searchAudio(it) // 实时搜索
+                                viewModel.searchAudio(it)
                             },
                             placeholder = { Text("搜索音频...") },
                             singleLine = true,
@@ -136,8 +130,8 @@ fun AudioPickerScreen(
                         IconButton(onClick = {
                             isSearchActive = false
                             searchQuery = ""
-                            viewModel.searchAudio("") // 恢复列表
-                            focusManager.clearFocus() // 关闭键盘
+                            viewModel.searchAudio("")
+                            focusManager.clearFocus()
                         }) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "退出搜索")
                         }
@@ -157,7 +151,6 @@ fun AudioPickerScreen(
                     )
                 )
             } else {
-                // === 普通模式下的 TopBar ===
                 CenterAlignedTopAppBar(
                     title = { Text("选择音频") },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -183,7 +176,7 @@ fun AudioPickerScreen(
             }
         },
         floatingActionButton = {
-            if (!isSearchActive) { // 搜索时不显示FAB
+            if (!isSearchActive) {
                 ExtendedFloatingActionButton(
                     onClick = { systemPickerLauncher.launch("audio/*") },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
@@ -197,7 +190,6 @@ fun AudioPickerScreen(
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else if (audioList.isEmpty()) {
-                // 【修改】列表为空时，区分是“真没文件”还是“搜索无结果”
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -237,9 +229,61 @@ fun AudioPickerScreen(
                                     }
                                 )
                             )
-                            DropdownMenu(expanded = isMenuExpanded, onDismissRequest = { isMenuExpanded = false }) {
-                                DropdownMenuItem(text = { Text("重命名") }, onClick = { isMenuExpanded = false; viewModel.showRenameDialog = true })
-                                DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) }, onClick = { isMenuExpanded = false; viewModel.showDeleteDialog = true })
+
+                            // ★★★【修改】DropdownMenu ★★★
+                            DropdownMenu(
+                                expanded = isMenuExpanded,
+                                onDismissRequest = { isMenuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("分享") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Share,
+                                            contentDescription = "分享",
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        isMenuExpanded = false
+                                        viewModel.shareAudio(context, audio)
+                                    }
+                                )
+
+                                Divider() // 使用 Material 3 的 Divider
+
+                                DropdownMenuItem(
+                                    text = { Text("重命名") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "重命名",
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        isMenuExpanded = false
+                                        viewModel.selectedAudioForAction = audio
+                                        viewModel.showRenameDialog = true
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "删除",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        isMenuExpanded = false
+                                        viewModel.selectedAudioForAction = audio
+                                        viewModel.showDeleteDialog = true
+                                    }
+                                )
                             }
                         }
                         Divider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
@@ -248,7 +292,7 @@ fun AudioPickerScreen(
             }
         }
 
-        // --- 弹窗组件 (保持原样，仅为代码完整性) ---
+        // --- 弹窗组件 ---
         if (viewModel.showDeleteDialog) {
             AlertDialog(
                 onDismissRequest = { viewModel.showDeleteDialog = false },
