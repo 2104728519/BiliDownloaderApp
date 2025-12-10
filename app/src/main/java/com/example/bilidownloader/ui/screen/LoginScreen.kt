@@ -126,8 +126,8 @@ fun LoginScreen(
             val geetestInfo = (state as LoginState.CaptchaRequired).geetestInfo
             GeetestWebView(
                 geetestInfo = geetestInfo,
-                onSuccess = { validate, seccode ->
-                    viewModel.onGeetestSuccess(validate, seccode)
+                onSuccess = { validate, seccode, cookie -> // <--- 【修改】增加 cookie 参数
+                    viewModel.onGeetestSuccess(validate, seccode, cookie) // <--- 【修改】传递给 ViewModel
                 },
                 onError = { msg ->
                     viewModel.onGeetestError(msg)

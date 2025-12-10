@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.net.Uri
 import android.util.Log
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -21,12 +22,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.bilidownloader.data.model.GeetestInfo
+import com.example.bilidownloader.data.api.RetrofitClient // 【新增导入】
+import android.os.Handler
+import android.os.Looper
 
+// 1. 修改 GeetestWebView 函数签名，增加一个 cookie 参数
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun GeetestWebView(
     geetestInfo: GeetestInfo,
-    onSuccess: (String, String) -> Unit,
+    onSuccess: (String, String, String) -> Unit, // <--- 传出 validate, seccode, cookie
     onError: (String) -> Unit,
     onClose: () -> Unit
 ) {
@@ -49,6 +54,10 @@ fun GeetestWebView(
                         loadWithOverviewMode = true
                         setSupportZoom(false)
                         mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+
+                        // 【核心修改】第二步：强制 WebView 使用和 Retrofit 一模一样的 User-Agent
+                        userAgentString = RetrofitClient.COMMON_USER_AGENT
+                        Log.d("GeetestWebView", "设置 UA: $userAgentString") // 打印日志确认
                     }
 
                     setBackgroundColor(0)
@@ -63,7 +72,7 @@ fun GeetestWebView(
                         }
                     }
 
-                    // 2. 【核心修改】URL 拦截逻辑
+                    // 2. URL 拦截逻辑
                     webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val url = request?.url?.toString() ?: return false
@@ -76,11 +85,16 @@ fun GeetestWebView(
                                     val validate = uri.getQueryParameter("validate")
                                     val seccode = uri.getQueryParameter("seccode")
 
-                                    Log.d("GeetestWebView", "拦截到成功信号! val=$validate, sec=$seccode")
+                                    // 【核心新增】从 WebView 获取真实的 Cookie
+                                    val cookieManager = android.webkit.CookieManager.getInstance()
+                                    // 注意：这里使用 B 站 passport 域名提取 Cookie
+                                    val webViewCookie = cookieManager.getCookie("https://passport.bilibili.com") ?: ""
+
+                                    Log.d("GeetestWebView", "成功窃取 WebView Cookie: $webViewCookie")
 
                                     if (!validate.isNullOrEmpty() && !seccode.isNullOrEmpty()) {
                                         // 切换到主线程调用回调 (保险起见)
-                                        post { onSuccess(validate, seccode) }
+                                        post { onSuccess(validate, seccode, webViewCookie) } // <--- 传出 Cookie
                                     }
                                 } catch (e: Exception) {
                                     Log.e("GeetestWebView", "解析参数异常", e)
@@ -122,6 +136,7 @@ fun GeetestWebView(
     }
 }
 
+// 保持 getFullHtml 方法不变
 private fun getFullHtml(info: GeetestInfo): String {
     return """
         <!DOCTYPE html>
@@ -161,7 +176,7 @@ private fun getFullHtml(info: GeetestInfo): String {
                             var result = captchaObj.getValidate();
                             console.log("JS: 验证成功, 准备跳转协议...");
                             
-                            // 【核心修改】不调对象，直接跳链接，参数用 encodeURIComponent 编码
+                            // 【核心】不调对象，直接跳链接，参数用 encodeURIComponent 编码
                             var validate = encodeURIComponent(result.geetest_validate);
                             var seccode = encodeURIComponent(result.geetest_seccode);
                             

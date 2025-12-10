@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+// ... (LoginState 定义保持不变)
 sealed class LoginState {
     object Idle : LoginState()
     object Loading : LoginState()
@@ -24,7 +25,7 @@ sealed class LoginState {
 
 class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val TAG = "LoginViewModel" // 日志标签
+    private val TAG = "LoginViewModel"
 
     private val _loginState = MutableStateFlow<LoginState>(LoginState.Idle)
     val loginState = _loginState.asStateFlow()
@@ -34,11 +35,29 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     private val _isTimerRunning = MutableStateFlow(false)
     val isTimerRunning = _isTimerRunning.asStateFlow()
 
-    // 【修改点 1】将关键参数保存在 ViewModel 变量中，而不是依赖 UI State
     private var currentPhone: Long = 0
-    private var currentCaptchaToken: String = "" // Step 1 拿到的 token
-    private var currentGeetestChallenge: String = "" // Step 1 拿到的 challenge
-    private var currentSmsKey: String = ""      // Step 2 发短信后拿到的 key
+    private var currentCaptchaToken: String = ""
+    private var currentGeetestChallenge: String = ""
+    private var currentSmsKey: String = ""
+
+    // 【新增】初始化时预先请求一次 B 站接口，获取指纹 Cookie (buvid3)
+    // 这一步对于绕过“请下载最新App”的错误至关重要
+    init {
+        preheatCookies()
+    }
+
+    private fun preheatCookies() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "正在预热 Cookie (获取 buvid)...")
+                // getNavInfo 会返回 buvid3 和 b_nut，RetrofitClient 会自动保存
+                RetrofitClient.service.getNavInfo().execute()
+                Log.d(TAG, "Cookie 预热完成")
+            } catch (e: Exception) {
+                Log.w(TAG, "Cookie 预热失败，后续短信发送可能会受阻", e)
+            }
+        }
+    }
 
     fun fetchCaptcha(phone: String) {
         if (phone.length != 11) {
@@ -54,14 +73,18 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val response = RetrofitClient.service.getCaptcha().execute()
                 val body = response.body()
-                Log.d(TAG, "Step 1 响应: code=${body?.code}, msg=${body?.message}")
 
                 if (body?.code == 0 && body.data != null) {
-                    // 保存关键参数
                     currentCaptchaToken = body.data.token
                     currentGeetestChallenge = body.data.geetest.challenge
 
-                    Log.d(TAG, "Step 1 成功: gt=${body.data.geetest.gt}")
+                    // 检查一下是否有 buvid，如果没有再尝试获取一次（双重保险）
+                    val currentCookie = CookieManager.getCookie(getApplication())
+                    if (currentCookie?.contains("buvid") != true) {
+                        Log.w(TAG, "警告：请求验证码时仍未发现 buvid，尝试紧急补救...")
+                        RetrofitClient.service.getNavInfo().execute() // 再次尝试获取
+                    }
+
                     _loginState.value = LoginState.CaptchaRequired(body.data.geetest)
                 } else {
                     _loginState.value = LoginState.Error("获取验证码失败: ${body?.message}")
@@ -73,21 +96,40 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // 【修改点 2】重写此方法，增加日志并移除对 State 的依赖
-    fun onGeetestSuccess(validate: String, seccode: String) {
-        Log.d(TAG, "Step 2: 极验验证成功回调。validate=$validate")
+    // 【修改】接收 webViewCookie 参数，并执行同步和检查
+    fun onGeetestSuccess(validate: String, seccode: String, webViewCookie: String) {
+        Log.d(TAG, "Step 2: 极验验证成功。validate=$validate")
 
-        // 立即切换状态，移除极验窗口，防止白屏
+        // 【核心操作】将 WebView 的 Cookie 同步到我们的 CookieManager
+        if (webViewCookie.isNotEmpty()) {
+            // WebView 的 Cookie 格式是 "key=value; key2=value2"
+            // 我们将其分割成列表保存
+            val cookieList = webViewCookie.split(";").map { it.trim() }
+            CookieManager.saveCookies(getApplication(), cookieList)
+            Log.d(TAG, "【检查点 A】WebView Cookie 已同步: $webViewCookie")
+        } else {
+            Log.w(TAG, "【检查点 A 警告】WebView 未返回 Cookie！")
+        }
+
         _loginState.value = LoginState.Loading
 
         viewModelScope.launch(Dispatchers.IO) {
+            // 【检查点 B】打印发送请求前，Retrofit 即将使用的 Cookie
+            val currentStoredCookie = CookieManager.getCookie(getApplication())
+            Log.d(TAG, "【检查点 B】发送短信前的最终 Cookie: $currentStoredCookie")
+
+            // 检查 buvid3 是否存在
+            if (currentStoredCookie?.contains("buvid3") != true) {
+                Log.e(TAG, "【致命错误】Cookie 中缺失 buvid3，请求必定失败！")
+            }
+
             Log.d(TAG, "Step 2: 正在请求发送短信 API...")
             try {
                 val response = RetrofitClient.service.sendSmsCode(
                     cid = 86,
                     tel = currentPhone,
                     token = currentCaptchaToken,
-                    challenge = currentGeetestChallenge, // 使用成员变量
+                    challenge = currentGeetestChallenge,
                     validate = validate,
                     seccode = seccode
                 ).execute()
@@ -96,7 +138,6 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 Log.d(TAG, "Step 2 响应: code=${body?.code}, msg=${body?.message}")
 
                 if (body?.code == 0 && body.data != null) {
-                    Log.d(TAG, "Step 2 成功: 短信已发送，captcha_key=${body.data.captcha_key}")
                     currentSmsKey = body.data.captcha_key
                     _loginState.value = LoginState.SmsSent
                     startTimer()
@@ -105,7 +146,6 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     _loginState.value = LoginState.Error("短信发送失败: ${body?.message}")
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
                 Log.e(TAG, "Step 2 异常: ${e.message}")
                 _loginState.value = LoginState.Error("发送短信异常: ${e.message}")
             }
@@ -114,7 +154,6 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onGeetestClose() {
         Log.d(TAG, "用户关闭了极验窗口")
-        // 只有当前还在显示验证码时才重置，避免打断 Loading 状态
         if (_loginState.value is LoginState.CaptchaRequired) {
             _loginState.value = LoginState.Idle
         }
@@ -136,39 +175,27 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     cid = 86,
                     tel = currentPhone,
                     code = smsCode.toInt(),
-                    captchaKey = currentSmsKey // 确保这里使用了正确的参数名
+                    captchaKey = currentSmsKey
                 ).execute()
 
                 val body = response.body()
                 Log.d(TAG, "Step 3 响应: code=${body?.code}, msg=${body?.message}")
 
                 if (body?.code == 0) {
-                    // 提取 Cookie
                     val headers = response.headers()
                     val cookies = headers.values("Set-Cookie")
-                    Log.d(TAG, "Step 3 Header Cookie数量: ${cookies.size}")
 
-                    var sessDataFound = false
-                    for (cookie in cookies) {
-                        if (cookie.contains("SESSDATA")) {
-                            Log.d(TAG, "Step 3 找到 SESSDATA，正在保存...")
-                            CookieManager.saveSessData(getApplication(), cookie)
-                            sessDataFound = true
-                            break
-                        }
-                    }
-
-                    if (sessDataFound) {
+                    if (cookies.isNotEmpty()) {
+                        // 使用新的保存方法
+                        CookieManager.saveCookies(getApplication(), cookies)
                         _loginState.value = LoginState.Success
                     } else {
-                        Log.e(TAG, "Step 3 警告: 登录接口返回成功但未找到 SESSDATA")
                         _loginState.value = LoginState.Error("登录成功但未找到凭证")
                     }
                 } else {
                     _loginState.value = LoginState.Error("登录失败: ${body?.message}")
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
                 _loginState.value = LoginState.Error("登录异常: ${e.message}")
             }
         }
