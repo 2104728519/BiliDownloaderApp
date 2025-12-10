@@ -49,7 +49,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
 
-    // 【新增】缓存当前选中的格式，UI 更改选择时更新这两个变量
+    // 缓存当前选中的格式，UI 更改选择时更新这两个变量
     var selectedVideoOption: FormatOption? = null
     var selectedAudioOption: FormatOption? = null
 
@@ -100,8 +100,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     timestamp = System.currentTimeMillis()
                 ))
 
-                // 3. 【新增】预获取 PlayUrl 以解析可用画质和音质
-                // 请求最高的画质(qn=120)和所有 fnval，以便 B 站返回所有可用列表
+                // 3. 预获取 PlayUrl 以解析可用画质和音质
                 val navResp = RetrofitClient.service.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
@@ -111,8 +110,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val params = TreeMap<String, Any>().apply {
                     put("bvid", currentBvid)
                     put("cid", currentCid)
-                    put("qn", "120") // 尝试请求最高画质，获取完整列表
-                    put("fnval", "4048") // DASH
+                    put("qn", "120")
+                    put("fnval", "4048")
                     put("fourk", "1")
                 }
                 val signedQuery = BiliSigner.signParams(params, mixinKey)
@@ -129,8 +128,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val audioOpts = mutableListOf<FormatOption>()
 
                 if (playData?.dash != null) {
-                    // 注意：此处因为数据模型没有时长字段，所以暂时硬编码为 180 秒用于估算体积
-                    val estimatedDurationInSeconds = 180L
+                    // 【修改 A】: 从 API 获取真实的视频时长（毫秒），并转换为秒。
+                    // 如果 API 没有返回时长，则使用默认的 180 秒作为备用值。
+                    val durationInSeconds = if (playData.timelength != null && playData.timelength > 0) {
+                        playData.timelength / 1000L
+                    } else {
+                        180L // 备用值
+                    }
 
                     // 4.1 视频处理
                     playData.dash.video.forEach { media ->
@@ -144,8 +148,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             else -> "MP4"
                         }
 
-                        // 估算大小 (Bandwidth 是 bit/s) -> 体积 (Bytes) = 码率 * 时长 / 8
-                        val estimatedSize = (media.bandwidth * estimatedDurationInSeconds / 8)
+                        // 【修改 B】: 使用真实的视频时长来计算估算大小
+                        // 体积 (Bytes) = 码率 (bit/s) * 时长 (s) / 8
+                        val estimatedSize = (media.bandwidth * durationInSeconds / 8)
                         val sizeText = formatSize(estimatedSize)
 
                         videoOpts.add(FormatOption(
@@ -162,7 +167,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     playData.dash.audio?.forEach { media ->
                         val idMap = mapOf(30280 to "192K", 30232 to "132K", 30216 to "64K", 30250 to "杜比全景声", 30251 to "Hi-Res")
                         val name = idMap[media.id] ?: "音质 ${media.id}"
-                        val estimatedSize = (media.bandwidth * estimatedDurationInSeconds / 8)
+
+                        // 【修改 C】: 同样使用真实时长来计算音频的估算大小
+                        val estimatedSize = (media.bandwidth * durationInSeconds / 8)
                         audioOpts.add(FormatOption(
                             id = media.id,
                             label = "$name - 约 ${formatSize(estimatedSize)}",
@@ -215,8 +222,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 【修改】开始下载
-     * 现在支持使用 selectedVideoOption 和 selectedAudioOption
+     * 开始下载
+     * (此部分逻辑未改动)
      */
     fun startDownload(audioOnly: Boolean) {
         val vOpt = selectedVideoOption
@@ -246,7 +253,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val params = TreeMap<String, Any>().apply {
                     put("bvid", currentBvid)
                     put("cid", currentCid)
-                    // 即使选择了HEVC的80，这里传的还是80，服务器会返回包含HEVC和AVC的所有流
                     put("qn", vOpt?.id?.toString() ?: "80")
                     put("fnval", "4048")
                     put("fourk", "1")
@@ -261,10 +267,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val playResp = RetrofitClient.service.getPlayUrl(queryMap).execute()
                 val dash = playResp.body()?.data?.dash ?: throw Exception("无法获取流地址")
 
-                // 4. 【关键】从 DASH 列表中精确匹配我们选中的那个流
+                // 4. 从 DASH 列表中精确匹配我们选中的那个流
                 val videoUrl = if (!audioOnly) {
-                    dash.video.find { it.bandwidth == vOpt!!.bandwidth }?.baseUrl // 优先用码率匹配
-                        ?: dash.video.firstOrNull { it.id == vOpt!!.id }?.baseUrl // 降级用id匹配
+                    dash.video.find { it.bandwidth == vOpt!!.bandwidth }?.baseUrl
+                        ?: dash.video.firstOrNull { it.id == vOpt!!.id }?.baseUrl
                         ?: throw Exception("未找到选中的视频流")
                 } else null
 
@@ -323,18 +329,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // updateSelectedFormat 方法供 UI 调用
+    // (此部分逻辑未改动)
     fun updateSelectedVideo(option: FormatOption) {
         selectedVideoOption = option
     }
 
+    // (此部分逻辑未改动)
     fun updateSelectedAudio(option: FormatOption) {
         selectedAudioOption = option
     }
 
     /**
-     * 【新增，逻辑来自原代码】为转写做准备
-     * 逻辑：获取链接 -> 下载音频临时文件 -> 回调文件路径
+     * 为转写做准备
+     * (此部分逻辑未改动)
      */
     fun prepareForTranscription(onReady: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -350,8 +357,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val params = TreeMap<String, Any>().apply {
                     put("bvid", currentBvid)
                     put("cid", currentCid)
-                    put("qn", "80") // 转写不需要太高音质
-                    put("fnval", "4048") // 请求 DASH 优先
+                    put("qn", "80")
+                    put("fnval", "4048")
                 }
                 val signedQuery = BiliSigner.signParams(params, mixinKey)
 

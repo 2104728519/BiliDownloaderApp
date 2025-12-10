@@ -47,6 +47,7 @@ data class PageData(
 // ------------------------------------------------
 // 4. 播放地址 (升级版 - 增加字段)
 data class PlayData(
+    val timelength: Long?,              // <-- 新增此行，用于接收视频总时长(毫秒)
     val accept_quality: List<Int>?,      // 例如: [80, 64, 32, 16]
     val accept_description: List<String>?, // 例如: ["1080P 高清", "720P 高清", ...]
     val dash: DashInfo?,
