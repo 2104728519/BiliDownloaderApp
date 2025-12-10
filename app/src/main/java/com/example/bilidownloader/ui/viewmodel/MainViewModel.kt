@@ -12,6 +12,7 @@ import com.example.bilidownloader.data.repository.HistoryRepository
 import com.example.bilidownloader.ui.state.FormatOption
 import com.example.bilidownloader.ui.state.MainState
 import com.example.bilidownloader.utils.BiliSigner
+import com.example.bilidownloader.utils.CookieManager
 import com.example.bilidownloader.utils.FFmpegHelper
 import com.example.bilidownloader.utils.LinkUtils
 import com.example.bilidownloader.utils.StorageHelper
@@ -49,9 +50,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
 
-    // 缓存当前选中的格式，UI 更改选择时更新这两个变量
     var selectedVideoOption: FormatOption? = null
     var selectedAudioOption: FormatOption? = null
+
+    // 【新增】提供给 UI 调用的 Cookie 操作方法
+    fun saveCookie(cookie: String) {
+        CookieManager.saveSessData(getApplication(), cookie)
+    }
+
+    fun getCurrentCookieValue(): String {
+        return CookieManager.getSessDataValue(getApplication())
+    }
+
 
     fun reset() {
         _state.value = MainState.Idle
@@ -65,6 +75,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // analyzeInput 和 startDownload 方法中的 `qn` 参数现在会因为 Cookie 的存在而自动获取更高清晰度
+    // 因此这部分逻辑不需要显式修改
     fun analyzeInput(input: String) {
         viewModelScope.launch(Dispatchers.IO) {
             _state.value = MainState.Analyzing
@@ -83,15 +95,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                // 1. 获取基本信息
                 val response = RetrofitClient.service.getVideoView(bvid).execute()
                 val detail = response.body()?.data ?: throw Exception("无法获取视频信息")
 
                 currentDetail = detail
                 currentBvid = detail.bvid
-                currentCid = detail.pages[0].cid // 默认P1
+                currentCid = detail.pages[0].cid
 
-                // 2. 存历史记录
                 historyRepository.insert(HistoryEntity(
                     bvid = detail.bvid,
                     title = detail.title,
@@ -100,7 +110,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     timestamp = System.currentTimeMillis()
                 ))
 
-                // 3. 预获取 PlayUrl 以解析可用画质和音质
                 val navResp = RetrofitClient.service.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
@@ -110,7 +119,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val params = TreeMap<String, Any>().apply {
                     put("bvid", currentBvid)
                     put("cid", currentCid)
-                    put("qn", "120")
+                    put("qn", "127") // 直接请求最高可用画质，服务器会返回所有可用的
                     put("fnval", "4048")
                     put("fourk", "1")
                 }
@@ -121,25 +130,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val playResp = RetrofitClient.service.getPlayUrl(queryMap).execute()
-                val playData = playResp.body()?.data
+                val playData = playResp.body()?.data ?: throw Exception("无法获取播放列表: ${playResp.errorBody()?.string()}")
 
-                // 4. 解析格式列表
+
                 val videoOpts = mutableListOf<FormatOption>()
                 val audioOpts = mutableListOf<FormatOption>()
 
-                if (playData?.dash != null) {
-                    // 【修改 A】: 从 API 获取真实的视频时长（毫秒），并转换为秒。
-                    // 如果 API 没有返回时长，则使用默认的 180 秒作为备用值。
+                if (playData.dash != null) {
                     val durationInSeconds = if (playData.timelength != null && playData.timelength > 0) {
                         playData.timelength / 1000L
                     } else {
-                        180L // 备用值
+                        180L
                     }
 
-                    // 4.1 视频处理
                     playData.dash.video.forEach { media ->
                         val qIndex = playData.accept_quality?.indexOf(media.id) ?: -1
-                        val desc = if (qIndex >= 0) playData.accept_description?.get(qIndex) ?: "未知画质" else "未知画质"
+                        val desc = if (qIndex >= 0 && qIndex < (playData.accept_description?.size ?: 0)) {
+                            playData.accept_description?.get(qIndex) ?: "未知画质"
+                        } else "未知画质 ${media.id}"
+
 
                         val codecSimple = when {
                             media.codecs?.startsWith("avc") == true -> "AVC"
@@ -148,8 +157,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             else -> "MP4"
                         }
 
-                        // 【修改 B】: 使用真实的视频时长来计算估算大小
-                        // 体积 (Bytes) = 码率 (bit/s) * 时长 (s) / 8
                         val estimatedSize = (media.bandwidth * durationInSeconds / 8)
                         val sizeText = formatSize(estimatedSize)
 
@@ -163,12 +170,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ))
                     }
 
-                    // 4.2 音频处理
                     playData.dash.audio?.forEach { media ->
                         val idMap = mapOf(30280 to "192K", 30232 to "132K", 30216 to "64K", 30250 to "杜比全景声", 30251 to "Hi-Res")
                         val name = idMap[media.id] ?: "音质 ${media.id}"
-
-                        // 【修改 C】: 同样使用真实时长来计算音频的估算大小
                         val estimatedSize = (media.bandwidth * durationInSeconds / 8)
                         audioOpts.add(FormatOption(
                             id = media.id,
@@ -181,11 +185,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // 去重并排序 (码率高的在前面)
                 val finalVideoOpts = videoOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
                 val finalAudioOpts = audioOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
 
-                // 默认选中第一个 (最高画质/音质)
                 selectedVideoOption = finalVideoOpts.firstOrNull()
                 selectedAudioOption = finalAudioOpts.firstOrNull()
 
@@ -221,10 +223,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * 开始下载
-     * (此部分逻辑未改动)
-     */
     fun startDownload(audioOnly: Boolean) {
         val vOpt = selectedVideoOption
         val aOpt = selectedAudioOption
@@ -242,18 +240,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = MainState.Processing("准备下载...", 0f)
 
             try {
-                // 1. 获取密钥 (重复逻辑可提取，这里保留)
                 val navResp = RetrofitClient.service.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
                 val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
                 val mixinKey = BiliSigner.getMixinKey(imgKey, subKey)
 
-                // 2. 签名参数 - 使用选中的 qn
                 val params = TreeMap<String, Any>().apply {
                     put("bvid", currentBvid)
                     put("cid", currentCid)
-                    put("qn", vOpt?.id?.toString() ?: "80")
+                    put("qn", vOpt?.id ?: aOpt.id)
                     put("fnval", "4048")
                     put("fourk", "1")
                 }
@@ -263,22 +259,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     URLDecoder.decode(p[0], "UTF-8") to URLDecoder.decode(p[1], "UTF-8")
                 }
 
-                // 3. 获取地址
                 val playResp = RetrofitClient.service.getPlayUrl(queryMap).execute()
                 val dash = playResp.body()?.data?.dash ?: throw Exception("无法获取流地址")
 
-                // 4. 从 DASH 列表中精确匹配我们选中的那个流
                 val videoUrl = if (!audioOnly) {
-                    dash.video.find { it.bandwidth == vOpt!!.bandwidth }?.baseUrl
-                        ?: dash.video.firstOrNull { it.id == vOpt!!.id }?.baseUrl
+                    dash.video.find { it.id == vOpt!!.id && it.codecs == vOpt.codecs }?.baseUrl // 精确匹配
+                        ?: dash.video.find { it.id == vOpt!!.id }?.baseUrl // 降级匹配ID
                         ?: throw Exception("未找到选中的视频流")
                 } else null
 
-                val audioUrl = dash.audio?.find { it.bandwidth == aOpt.bandwidth }?.baseUrl
+                val audioUrl = dash.audio?.find { it.id == aOpt.id }?.baseUrl
                     ?: dash.audio?.firstOrNull()?.baseUrl
                     ?: throw Exception("未找到音频流")
 
-                // 5. 后续下载逻辑
                 val cacheDir = getApplication<Application>().cacheDir
                 val audioFile = File(cacheDir, "temp_audio.m4s")
 
@@ -329,25 +322,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // (此部分逻辑未改动)
     fun updateSelectedVideo(option: FormatOption) {
         selectedVideoOption = option
     }
 
-    // (此部分逻辑未改动)
     fun updateSelectedAudio(option: FormatOption) {
         selectedAudioOption = option
     }
 
-    /**
-     * 为转写做准备
-     * (此部分逻辑未改动)
-     */
     fun prepareForTranscription(onReady: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             _state.value = MainState.Processing("正在获取音频流...", 0f)
             try {
-                // 1. 获取密钥 & 签名
                 val navResp = RetrofitClient.service.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
@@ -369,7 +355,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         queryMap[URLDecoder.decode(parts[0], "UTF-8")] = URLDecoder.decode(parts[1], "UTF-8")
                     }
                 }
-                // 2. 获取地址
                 val playResp = RetrofitClient.service.getPlayUrl(queryMap).execute()
                 val data = playResp.body()?.data
 
@@ -377,7 +362,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ?: data?.durl?.firstOrNull()?.url
                     ?: throw Exception("未找到音频流")
 
-                // 3. 下载
                 val cacheDir = getApplication<Application>().cacheDir
                 val tempFile = File(cacheDir, "trans_temp_${System.currentTimeMillis()}.m4a")
 
@@ -387,7 +371,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _state.value = MainState.Processing("正在提取音频...", p)
                 }
 
-                // 4. 切换回主线程进行回调
                 withContext(Dispatchers.Main) {
                     currentDetail?.let {
                         _state.value = MainState.ChoiceSelect(it,

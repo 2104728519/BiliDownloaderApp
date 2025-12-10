@@ -1,5 +1,6 @@
 package com.example.bilidownloader.ui.screen
 
+import android.app.Application
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,11 +10,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.bilidownloader.data.database.HistoryEntity
 import com.example.bilidownloader.ui.components.BiliWebPlayer
@@ -34,6 +38,9 @@ fun HomeScreen(
     var isSelectionMode by remember { mutableStateOf(false) }
     val selectedItems = remember { mutableStateListOf<HistoryEntity>() }
 
+    // 【新增】控制 Cookie 设置对话框的显示状态
+    var showCookieDialog by remember { mutableStateOf(false) }
+
     fun exitSelectionMode() {
         isSelectionMode = false
         selectedItems.clear()
@@ -41,6 +48,18 @@ fun HomeScreen(
 
     BackHandler(enabled = isSelectionMode) {
         exitSelectionMode()
+    }
+
+    // 【新增】如果 showCookieDialog 为 true，则显示对话框
+    if (showCookieDialog) {
+        CookieSetupDialog(
+            currentCookie = viewModel.getCurrentCookieValue(),
+            onDismiss = { showCookieDialog = false },
+            onSave = { newCookie ->
+                viewModel.saveCookie(newCookie)
+                showCookieDialog = false
+            }
+        )
     }
 
     Scaffold(
@@ -64,12 +83,32 @@ fun HomeScreen(
                         }) {
                             Icon(Icons.Default.Delete, contentDescription = "删除")
                         }
+                    } else {
+                        // 【新增】右上角菜单，用于设置 Cookie
+                        var menuExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "更多选项")
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("设置 Cookie (SESSDATA)") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        showCookieDialog = true // 点击后显示对话框
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             )
         }
     ) { paddingValues ->
-
+        // ... (Scaffold 内部的其他代码保持不变)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -165,7 +204,6 @@ fun HomeScreen(
                     }
                 }
 
-                // 3. 选择状态 (重大更新)
                 is MainState.ChoiceSelect -> {
                     Column(
                         modifier = Modifier
@@ -173,12 +211,8 @@ fun HomeScreen(
                             .verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // 1. 播放器
                         BiliWebPlayer(bvid = currentState.detail.bvid)
-
                         Spacer(modifier = Modifier.height(16.dp))
-
-                        // 2. 信息
                         Text(
                             text = currentState.detail.title,
                             style = MaterialTheme.typography.titleMedium,
@@ -189,28 +223,20 @@ fun HomeScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.secondary
                         )
-
                         Spacer(modifier = Modifier.height(24.dp))
-
-                        // 3. 【新功能】下载选项卡
                         OutlinedCard(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text("下载选项", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.height(16.dp))
-
-                                // 视频画质选择器
                                 QualitySelector(
                                     label = "视频画质",
                                     options = currentState.videoFormats,
                                     selectedOption = viewModel.selectedVideoOption,
                                     onOptionSelected = { viewModel.updateSelectedVideo(it) }
                                 )
-
                                 Spacer(modifier = Modifier.height(16.dp))
-
-                                // 音频音质选择器
                                 QualitySelector(
                                     label = "音频音质",
                                     options = currentState.audioFormats,
@@ -219,29 +245,21 @@ fun HomeScreen(
                                 )
                             }
                         }
-
                         Spacer(modifier = Modifier.height(24.dp))
-
-                        // 4. 按钮
                         Button(
                             onClick = { viewModel.startDownload(audioOnly = false) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("下载视频 (MP4)")
                         }
-
                         Spacer(modifier = Modifier.height(8.dp))
-
                         OutlinedButton(
                             onClick = { viewModel.startDownload(audioOnly = true) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("仅下载音频 (MP3)")
                         }
-
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        // 转写按钮
                         Button(
                             onClick = {
                                 viewModel.prepareForTranscription { path ->
@@ -264,9 +282,7 @@ fun HomeScreen(
                             color = MaterialTheme.colorScheme.outline,
                             modifier = Modifier.padding(top = 4.dp)
                         )
-
                         Spacer(modifier = Modifier.height(16.dp))
-
                         TextButton(
                             onClick = { viewModel.reset() },
                             modifier = Modifier.fillMaxWidth()
@@ -276,7 +292,6 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(24.dp))
                     }
                 }
-
                 is MainState.Processing -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -314,7 +329,60 @@ fun HomeScreen(
     }
 }
 
-// 【新增组件】下拉选择框封装
+// 【新增组件】Cookie 设置对话框
+@Composable
+fun CookieSetupDialog(
+    currentCookie: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(currentCookie) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "设置 Cookie",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                Text(
+                    text = "请从浏览器 F12 获取并粘贴您的 SESSDATA 值。格式为 “SESSDATA=xxxx” 或直接粘贴 “xxxx” 部分均可。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("SESSDATA") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("取消")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(onClick = { onSave(text) }) {
+                        Text("保存")
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// (QualitySelector 组件保持不变)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QualitySelector(
