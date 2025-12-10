@@ -21,6 +21,7 @@ import com.example.bilidownloader.ui.screen.AudioPickerScreen
 import com.example.bilidownloader.ui.screen.HomeScreen
 import com.example.bilidownloader.ui.screen.ToolsScreen
 import com.example.bilidownloader.ui.screen.TranscriptionScreen
+import com.example.bilidownloader.ui.screen.LoginScreen // 【新增】导入 LoginScreen
 import com.example.bilidownloader.utils.StorageHelper
 import java.net.URLEncoder
 
@@ -74,7 +75,17 @@ fun MainScreen() {
                         // 收到路径，跳转到转写页
                         val encodedPath = java.net.URLEncoder.encode(path, "UTF-8")
                         navController.navigate("transcription/$encodedPath")
+                    },
+                    onNavigateToLogin = { // <--- 【新增】跳转到登录页的回调
+                        navController.navigate("login")
                     }
+                )
+            }
+
+            // 【新增】注册登录页路由
+            composable("login") {
+                LoginScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
 

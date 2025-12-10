@@ -30,7 +30,8 @@ import com.example.bilidownloader.ui.viewmodel.MainViewModel
 @Composable
 fun HomeScreen(
     viewModel: MainViewModel = viewModel(),
-    onNavigateToTranscribe: (String) -> Unit
+    onNavigateToTranscribe: (String) -> Unit,
+    onNavigateToLogin: () -> Unit // <--- 【新增】跳转到登录页的入口
 ) {
     val state by viewModel.state.collectAsState()
     val historyList by viewModel.historyList.collectAsState()
@@ -84,7 +85,7 @@ fun HomeScreen(
                             Icon(Icons.Default.Delete, contentDescription = "删除")
                         }
                     } else {
-                        // 【新增】右上角菜单，用于设置 Cookie
+                        // 【更新】右上角菜单，添加登录入口
                         var menuExpanded by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
@@ -94,8 +95,17 @@ fun HomeScreen(
                                 expanded = menuExpanded,
                                 onDismissRequest = { menuExpanded = false }
                             ) {
+                                // 【新增】短信登录入口
                                 DropdownMenuItem(
-                                    text = { Text("设置 Cookie (SESSDATA)") },
+                                    text = { Text("短信验证码登录") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onNavigateToLogin() // 调用新的跳转回调
+                                    }
+                                )
+                                // 原有的设置 Cookie 入口
+                                DropdownMenuItem(
+                                    text = { Text("手动设置 Cookie (SESSDATA)") },
                                     onClick = {
                                         menuExpanded = false
                                         showCookieDialog = true // 点击后显示对话框

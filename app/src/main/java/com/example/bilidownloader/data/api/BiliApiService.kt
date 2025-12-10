@@ -6,6 +6,9 @@ import retrofit2.http.GET
 import retrofit2.http.Headers
 import retrofit2.http.Query
 import retrofit2.http.QueryMap
+import retrofit2.http.Field
+import retrofit2.http.FormUrlEncoded
+import retrofit2.http.POST
 
 /**
  * 这里是“点菜单”
@@ -40,4 +43,51 @@ interface BiliApiService {
     )
     @GET("x/player/wbi/playurl")
     fun getPlayUrl(@QueryMap params: Map<String, String>): Call<BiliResponse<PlayData>>
+
+    // ---
+
+    // ===========================
+    // 登录相关接口 (已修正域名和请求头)
+    // ===========================
+
+    // 1. 申请极验参数 (获取 gt 和 challenge)
+    // 增加 User-Agent 头，防止被 B 站防火墙拦截
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/"
+    )
+    @GET("https://passport.bilibili.com/x/passport-login/captcha?source=main_web")
+    fun getCaptcha(): Call<BiliResponse<CaptchaResult>>
+
+    // 2. 发送短信验证码
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/"
+    )
+    @FormUrlEncoded
+    @POST("https://passport.bilibili.com/x/passport-login/web/sms/send")
+    fun sendSmsCode(
+        @Field("cid") cid: Int,
+        @Field("tel") tel: Long,
+        @Field("token") token: String,
+        @Field("challenge") challenge: String,
+        @Field("validate") validate: String,
+        @Field("seccode") seccode: String,
+        @Field("source") source: String = "main_web"
+    ): Call<BiliResponse<SmsSendResponse>>
+
+    // 3. 验证短信码并登录
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/"
+    )
+    @FormUrlEncoded
+    @POST("https://passport.bilibili.com/x/passport-login/web/login/sms")
+    fun loginBySms(
+        @Field("cid") cid: Int,
+        @Field("tel") tel: Long,
+        @Field("code") code: Int,
+        @Field("captcha_key") captchaKey: String, // 注意这里变量名是 captchaKey
+        @Field("source") source: String = "main_web"
+    ): Call<BiliResponse<LoginResponseData>>
 }
