@@ -1,6 +1,7 @@
 package com.example.bilidownloader.ui.screen
 
 import android.app.Application
+import android.widget.Toast // 导入 Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,8 +17,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner // 【新增导入】生命周期所有者
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle // 【新增导入】Lifecycle
+import androidx.lifecycle.LifecycleEventObserver // 【新增导入】LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.bilidownloader.data.database.HistoryEntity
 import com.example.bilidownloader.ui.components.BiliWebPlayer
@@ -31,10 +35,34 @@ import com.example.bilidownloader.ui.viewmodel.MainViewModel
 fun HomeScreen(
     viewModel: MainViewModel = viewModel(),
     onNavigateToTranscribe: (String) -> Unit,
-    onNavigateToLogin: () -> Unit // <--- 【新增】跳转到登录页的入口
+    onNavigateToLogin: () -> Unit // <--- 跳转到登录页的入口
 ) {
     val state by viewModel.state.collectAsState()
     val historyList by viewModel.historyList.collectAsState()
+    // 【修改】收集响应式的登录状态
+    val isLoggedIn by viewModel.isUserLoggedIn.collectAsState()
+
+    val context = LocalContext.current // 获取 Context 用于 Toast
+
+    // ==========================================================
+    // 【核心修复】添加生命周期监听
+    // 当页面从 "登录页" 返回到 "首页" 时 (ON_RESUME)，强制刷新登录状态
+    // ==========================================================
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // 每次页面可见时，检查 Cookie 是否存在 (即检查登录状态)
+                viewModel.checkLoginStatus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    // ==========================================================
+
     var inputText by remember { mutableStateOf("") }
     var isSelectionMode by remember { mutableStateOf(false) }
     val selectedItems = remember { mutableStateListOf<HistoryEntity>() }
@@ -59,6 +87,7 @@ fun HomeScreen(
             onSave = { newCookie ->
                 viewModel.saveCookie(newCookie)
                 showCookieDialog = false
+                Toast.makeText(context, "Cookie 已保存", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -85,7 +114,7 @@ fun HomeScreen(
                             Icon(Icons.Default.Delete, contentDescription = "删除")
                         }
                     } else {
-                        // 【更新】右上角菜单，添加登录入口
+                        // 【修改】右上角菜单：根据 isLoggedIn 状态显示不同选项
                         var menuExpanded by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
@@ -95,22 +124,37 @@ fun HomeScreen(
                                 expanded = menuExpanded,
                                 onDismissRequest = { menuExpanded = false }
                             ) {
-                                // 【新增】短信登录入口
-                                DropdownMenuItem(
-                                    text = { Text("短信验证码登录") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onNavigateToLogin() // 调用新的跳转回调
-                                    }
-                                )
-                                // 原有的设置 Cookie 入口
-                                DropdownMenuItem(
-                                    text = { Text("手动设置 Cookie (SESSDATA)") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showCookieDialog = true // 点击后显示对话框
-                                    }
-                                )
+                                // 【逻辑分支：已登录】 (使用 isLoggedIn)
+                                if (isLoggedIn) {
+                                    DropdownMenuItem(
+                                        text = { Text("退出登录") },
+                                        onClick = {
+                                            menuExpanded = false
+                                            viewModel.logout() // 调用 ViewModel 中的退出登录逻辑
+                                            Toast.makeText(
+                                                context,
+                                                "已退出登录",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    )
+                                } else {
+                                    // 【逻辑分支：未登录】 (使用 isLoggedIn)
+                                    DropdownMenuItem(
+                                        text = { Text("短信验证码登录") },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onNavigateToLogin()
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("手动设置 Cookie (SESSDATA)") },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showCookieDialog = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -118,7 +162,6 @@ fun HomeScreen(
             )
         }
     ) { paddingValues ->
-        // ... (Scaffold 内部的其他代码保持不变)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -347,6 +390,8 @@ fun CookieSetupDialog(
     onSave: (String) -> Unit
 ) {
     var text by remember { mutableStateOf(currentCookie) }
+    // 确保导入 android.widget.Toast
+    val context = LocalContext.current
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -382,7 +427,10 @@ fun CookieSetupDialog(
                         Text("取消")
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Button(onClick = { onSave(text) }) {
+                    Button(onClick = {
+                        onSave(text)
+                        // Toast 提示已移到 HomeScreen 中
+                    }) {
                         Text("保存")
                     }
                 }

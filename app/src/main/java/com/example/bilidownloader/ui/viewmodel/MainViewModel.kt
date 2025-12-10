@@ -35,6 +35,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<MainState>(MainState.Idle)
     val state = _state.asStateFlow()
 
+    // 【新增】登录状态 StateFlow
+    private val _isUserLoggedIn = MutableStateFlow(false)
+    val isUserLoggedIn = _isUserLoggedIn.asStateFlow()
+
     private val repository = DownloadRepository()
     private val redirectClient = OkHttpClient.Builder().followRedirects(true).build()
     private val database = AppDatabase.getDatabase(application)
@@ -53,9 +57,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var selectedVideoOption: FormatOption? = null
     var selectedAudioOption: FormatOption? = null
 
-    // 【新增】提供给 UI 调用的 Cookie 操作方法
+    // 【新增】初始化时检查登录状态
+    init {
+        checkLoginStatus()
+    }
+
+    // 【新增】检查登录状态并更新 StateFlow
+    fun checkLoginStatus() {
+        val sess = CookieManager.getCookieValue(getApplication(), "SESSDATA")
+        _isUserLoggedIn.value = !sess.isNullOrEmpty()
+    }
+
+    // 【修改】退出登录逻辑
+    fun logout() {
+        viewModelScope.launch(Dispatchers.IO) {
+            // 1. 获取 CSRF Token (bili_jct)
+            val csrf = CookieManager.getCookieValue(getApplication(), "bili_jct")
+
+            if (!csrf.isNullOrEmpty()) {
+                try {
+                    // 2. 请求服务器注销
+                    // 这里使用 .execute() 在 IO 线程同步执行，并忽略结果
+                    RetrofitClient.service.logout(csrf).execute()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    // 即使网络失败，也要继续执行本地清除，确保本地状态正确
+                }
+            }
+
+            // 3. 清除本地 Cookie
+            CookieManager.clearCookies(getApplication())
+
+            // 4. 重置状态
+            reset()
+
+            // 5. 更新登录状态 StateFlow
+            checkLoginStatus()
+        }
+    }
+
+    // 【已移除】isLoggedIn() 方法 (现在使用 isUserLoggedIn StateFlow)
+
+    // 【修改】提供给 UI 调用的 Cookie 操作方法
     fun saveCookie(cookie: String) {
         CookieManager.saveSessData(getApplication(), cookie)
+        // 更新登录状态 StateFlow
+        checkLoginStatus()
     }
 
     fun getCurrentCookieValue(): String {

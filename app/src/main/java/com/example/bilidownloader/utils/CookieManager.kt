@@ -55,6 +55,22 @@ object CookieManager {
         return if (cookie.isNullOrBlank()) null else cookie
     }
 
+    /**
+     * 【新增】获取 Cookie 中指定字段的值
+     * 用于获取 bili_jct (即 CSRF Token)
+     */
+    fun getCookieValue(context: Context, key: String): String? {
+        val map = getCookieMap(context)
+        return map[key]
+    }
+
+    /**
+     * 【新增】清空所有 Cookie (本地退出)
+     */
+    fun clearCookies(context: Context) {
+        getPrefs(context).edit().remove(KEY_COOKIE).apply()
+    }
+
     // 获取 Map 格式方便解析
     private fun getCookieMap(context: Context): Map<String, String> {
         val cookieString = getPrefs(context).getString(KEY_COOKIE, "") ?: return emptyMap()

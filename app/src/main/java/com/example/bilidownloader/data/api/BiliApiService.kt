@@ -47,7 +47,7 @@ interface BiliApiService {
     // ---
 
     // ===========================
-    // 登录相关接口 (已修正域名和请求头)
+    // 登录/退出相关接口
     // ===========================
 
     // 1. 申请极验参数 (获取 gt 和 challenge)
@@ -90,4 +90,16 @@ interface BiliApiService {
         @Field("captcha_key") captchaKey: String, // 注意这里变量名是 captchaKey
         @Field("source") source: String = "main_web"
     ): Call<BiliResponse<LoginResponseData>>
+
+    // 4. 退出登录
+    // 注意：必须带上 biliCSRF 参数，否则报错 -111
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/"
+    )
+    @FormUrlEncoded
+    @POST("https://passport.bilibili.com/login/exit/v2")
+    fun logout(
+        @Field("biliCSRF") csrf: String
+    ): Call<BiliResponse<Any>> // 返回数据不重要，只要 code=0
 }
