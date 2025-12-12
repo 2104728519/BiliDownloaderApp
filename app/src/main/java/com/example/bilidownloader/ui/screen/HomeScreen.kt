@@ -39,14 +39,13 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val historyList by viewModel.historyList.collectAsState()
-    // 【修改】收集响应式的登录状态
+    // 收集响应式的登录状态
     val isLoggedIn by viewModel.isUserLoggedIn.collectAsState()
 
     val context = LocalContext.current // 获取 Context 用于 Toast
 
     // ==========================================================
-    // 【核心修复】添加生命周期监听
-    // 当页面从 "登录页" 返回到 "首页" 时 (ON_RESUME)，强制刷新登录状态
+    // 添加生命周期监听：页面从 "登录页" 返回到 "首页" 时 (ON_RESUME)，强制刷新登录状态
     // ==========================================================
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -67,7 +66,7 @@ fun HomeScreen(
     var isSelectionMode by remember { mutableStateOf(false) }
     val selectedItems = remember { mutableStateListOf<HistoryEntity>() }
 
-    // 【新增】控制 Cookie 设置对话框的显示状态
+    // 控制 Cookie 设置对话框的显示状态
     var showCookieDialog by remember { mutableStateOf(false) }
 
     fun exitSelectionMode() {
@@ -79,13 +78,14 @@ fun HomeScreen(
         exitSelectionMode()
     }
 
-    // 【新增】如果 showCookieDialog 为 true，则显示对话框
+    // 如果 showCookieDialog 为 true，则显示对话框
     if (showCookieDialog) {
         CookieSetupDialog(
             currentCookie = viewModel.getCurrentCookieValue(),
             onDismiss = { showCookieDialog = false },
             onSave = { newCookie ->
-                viewModel.saveCookie(newCookie)
+                // 确保对输入进行 trim() 处理
+                viewModel.saveCookie(newCookie.trim())
                 showCookieDialog = false
                 Toast.makeText(context, "Cookie 已保存", Toast.LENGTH_SHORT).show()
             }
@@ -114,7 +114,7 @@ fun HomeScreen(
                             Icon(Icons.Default.Delete, contentDescription = "删除")
                         }
                     } else {
-                        // 【修改】右上角菜单：根据 isLoggedIn 状态显示不同选项
+                        // 右上角菜单：根据 isLoggedIn 状态显示不同选项
                         var menuExpanded by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
@@ -124,7 +124,7 @@ fun HomeScreen(
                                 expanded = menuExpanded,
                                 onDismissRequest = { menuExpanded = false }
                             ) {
-                                // 【逻辑分支：已登录】 (使用 isLoggedIn)
+                                // 逻辑分支：已登录
                                 if (isLoggedIn) {
                                     DropdownMenuItem(
                                         text = { Text("退出登录") },
@@ -139,7 +139,7 @@ fun HomeScreen(
                                         }
                                     )
                                 } else {
-                                    // 【逻辑分支：未登录】 (使用 isLoggedIn)
+                                    // 逻辑分支：未登录
                                     DropdownMenuItem(
                                         text = { Text("短信验证码登录") },
                                         onClick = {
@@ -286,7 +286,7 @@ fun HomeScreen(
                                 QualitySelector(
                                     label = "视频画质",
                                     options = currentState.videoFormats,
-                                    // 【核心修改】直接从 ChoiceSelect 状态中读取 selectedVideo
+                                    // 直接从 ChoiceSelect 状态中读取 selectedVideo
                                     selectedOption = currentState.selectedVideo,
                                     onOptionSelected = { viewModel.updateSelectedVideo(it) }
                                 )
@@ -294,7 +294,7 @@ fun HomeScreen(
                                 QualitySelector(
                                     label = "音频音质",
                                     options = currentState.audioFormats,
-                                    // 【核心修改】直接从 ChoiceSelect 状态中读取 selectedAudio
+                                    // 直接从 ChoiceSelect 状态中读取 selectedAudio
                                     selectedOption = currentState.selectedAudio,
                                     onOptionSelected = { viewModel.updateSelectedAudio(it) }
                                 )
@@ -384,16 +384,15 @@ fun HomeScreen(
     }
 }
 
-// 【新增组件】Cookie 设置对话框
+// 【修改后的 CookieSetupDialog 组件】
 @Composable
 fun CookieSetupDialog(
     currentCookie: String,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit
 ) {
-    var text by remember { mutableStateOf(currentCookie) }
-    // 确保导入 android.widget.Toast
-    val context = LocalContext.current
+    // 确保文本不会包含不必要的空格，这里使用 trim()
+    var text by remember { mutableStateOf(currentCookie.trim()) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -419,7 +418,10 @@ fun CookieSetupDialog(
                     value = text,
                     onValueChange = { text = it },
                     label = { Text("SESSDATA") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    // 【关键修改】允许非单行，方便用户粘贴长文本
+                    singleLine = false,
+                    maxLines = 5
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -429,10 +431,10 @@ fun CookieSetupDialog(
                         Text("取消")
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Button(onClick = {
-                        onSave(text)
-                        // Toast 提示已移到 HomeScreen 中
-                    }) {
+                    Button(
+                        // 确保点击保存时，将文本的 trim() 版本传给 onSave
+                        onClick = { onSave(text.trim()) }
+                    ) {
                         Text("保存")
                     }
                 }

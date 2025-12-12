@@ -53,9 +53,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
 
-    // 【删除】旧的变量 selectedVideoOption 和 selectedAudioOption 已被移除
-    // 现在状态由 _state 统一管理
-
     init {
         checkLoginStatus()
     }
@@ -81,8 +78,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // 【修改后的 saveCookie 方法】
     fun saveCookie(cookie: String) {
-        CookieManager.saveSessData(getApplication(), cookie)
+        val trimmedCookie = cookie.trim()
+        if (trimmedCookie.isEmpty()) return
+
+        // 智能判断：如果用户只粘贴了值（不含等号），自动补全 SESSDATA=前缀
+        // 如果包含 SESSDATA= (忽略大小写)，则认为是标准格式
+        val finalCookie = if (trimmedCookie.contains("SESSDATA=", ignoreCase = true)) {
+            trimmedCookie
+        } else if (trimmedCookie.contains("=")) {
+            // 如果包含等号但不是 SESSDATA，可能是其他 Cookie 格式，直接保存尝试
+            trimmedCookie
+        } else {
+            // 既没有等号，也没有 Key，默认用户粘贴的是 SESSDATA 的值
+            "SESSDATA=$trimmedCookie"
+        }
+
+        CookieManager.saveSessData(getApplication(), finalCookie)
+        // 保存后立即检查状态，刷新 UI
         checkLoginStatus()
     }
 
@@ -209,7 +223,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val finalVideoOpts = videoOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
                 val finalAudioOpts = audioOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
 
-                // 【修改】直接在构建状态时传入默认选项
+                // 直接在构建状态时传入默认选项
                 _state.value = MainState.ChoiceSelect(
                     detail = detail,
                     videoFormats = finalVideoOpts,
@@ -248,7 +262,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // 【修改】更新选项时，直接更新 StateFlow
+    // 更新选项时，直接更新 StateFlow
     fun updateSelectedVideo(option: FormatOption) {
         val currentState = _state.value
         if (currentState is MainState.ChoiceSelect) {
@@ -256,7 +270,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // 【修改】更新选项时，直接更新 StateFlow
+    // 更新选项时，直接更新 StateFlow
     fun updateSelectedAudio(option: FormatOption) {
         val currentState = _state.value
         if (currentState is MainState.ChoiceSelect) {
@@ -265,7 +279,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startDownload(audioOnly: Boolean) {
-        // 【修改】从当前 State 中获取选项
+        // 从当前 State 中获取选项
         val currentState = _state.value as? MainState.ChoiceSelect ?: return
         val vOpt = currentState.selectedVideo
         val aOpt = currentState.selectedAudio
@@ -283,7 +297,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = MainState.Processing("准备下载...", 0f)
 
             try {
-                // (下载逻辑与之前保持一致，省略重复代码以节省篇幅，核心逻辑不变)
                 // ... 获取密钥、签名 ...
                 val navResp = RetrofitClient.service.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
@@ -412,7 +425,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 withContext(Dispatchers.Main) {
-                    // 【修改】恢复状态时，需要重新构建完整的 ChoiceSelect，包括选项
+                    // 恢复状态时，需要重新构建完整的 ChoiceSelect，包括选项
                     currentDetail?.let {
                         val videoOpts = (state.value as? MainState.ChoiceSelect)?.videoFormats ?: emptyList()
                         val audioOpts = (state.value as? MainState.ChoiceSelect)?.audioFormats ?: emptyList()
