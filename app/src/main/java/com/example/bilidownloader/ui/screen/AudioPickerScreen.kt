@@ -8,12 +8,21 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -22,6 +31,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -30,6 +40,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
+import kotlinx.coroutines.launch
+import kotlin.math.max
+import kotlin.math.min
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -42,9 +55,13 @@ fun AudioPickerScreen(
     val audioList by viewModel.audioList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
+    // 【新增】监听正序/倒序状态
+    val isAscending by viewModel.isAscending.collectAsState()
+
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
+    // --- 权限与 Launcher 代码保持不变 ---
     val intentSenderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
@@ -88,6 +105,7 @@ fun AudioPickerScreen(
         permissionLauncher.launch(permission)
     }
 
+    // --- 列表状态 ---
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = viewModel.scrollIndex,
         initialFirstVisibleItemScrollOffset = viewModel.scrollOffset
@@ -170,6 +188,28 @@ fun AudioPickerScreen(
                             DropdownMenuItem(text = { Text("按时间") }, onClick = { viewModel.changeSortType(AudioPickerViewModel.SortType.DATE); showSortMenu = false })
                             DropdownMenuItem(text = { Text("按大小") }, onClick = { viewModel.changeSortType(AudioPickerViewModel.SortType.SIZE); showSortMenu = false })
                             DropdownMenuItem(text = { Text("按时长") }, onClick = { viewModel.changeSortType(AudioPickerViewModel.SortType.DURATION); showSortMenu = false })
+
+                            Divider()
+
+                            // 【新增】正序/倒序切换选项
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(if (isAscending) "当前：正序 (A→Z)" else "当前：倒序 (Z→A)")
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Icon(
+                                            if (isAscending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    viewModel.toggleSortOrder()
+                                    // 保持菜单打开或关闭取决于你的喜好，这里关闭让用户看到结果
+                                    showSortMenu = false
+                                }
+                            )
                         }
                     }
                 )
@@ -186,7 +226,12 @@ fun AudioPickerScreen(
         }
     ) { paddingValues ->
 
-        Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
+        // 【修改】使用 Box 包裹 LazyColumn 以便叠加滚动条
+        Box(
+            modifier = Modifier
+                .padding(paddingValues)
+                .fillMaxSize()
+        ) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else if (audioList.isEmpty()) {
@@ -208,6 +253,7 @@ fun AudioPickerScreen(
                     )
                 }
             } else {
+                // 原有的 List
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     items(audioList, key = { it.id }) { audio ->
                         var isMenuExpanded by remember { mutableStateOf(false) }
@@ -230,69 +276,49 @@ fun AudioPickerScreen(
                                 )
                             )
 
-                            // ★★★【修改】DropdownMenu ★★★
+                            // 菜单保持不变...
                             DropdownMenu(
                                 expanded = isMenuExpanded,
                                 onDismissRequest = { isMenuExpanded = false }
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("分享") },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.Share,
-                                            contentDescription = "分享",
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    },
-                                    onClick = {
-                                        isMenuExpanded = false
-                                        viewModel.shareAudio(context, audio)
-                                    }
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                                    onClick = { isMenuExpanded = false; viewModel.shareAudio(context, audio) }
                                 )
-
-                                Divider() // 使用 Material 3 的 Divider
-
+                                Divider()
                                 DropdownMenuItem(
                                     text = { Text("重命名") },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "重命名",
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    },
-                                    onClick = {
-                                        isMenuExpanded = false
-                                        viewModel.selectedAudioForAction = audio
-                                        viewModel.showRenameDialog = true
-                                    }
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                                    onClick = { isMenuExpanded = false; viewModel.selectedAudioForAction = audio; viewModel.showRenameDialog = true }
                                 )
-
                                 DropdownMenuItem(
                                     text = { Text("删除", color = MaterialTheme.colorScheme.error) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "删除",
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    },
-                                    onClick = {
-                                        isMenuExpanded = false
-                                        viewModel.selectedAudioForAction = audio
-                                        viewModel.showDeleteDialog = true
-                                    }
+                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp)) },
+                                    onClick = { isMenuExpanded = false; viewModel.selectedAudioForAction = audio; viewModel.showDeleteDialog = true }
                                 )
                             }
                         }
                         Divider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                     }
                 }
+
+                // 【新增】快速滚动条
+                // 只有当列表足够长（比如超过 10 个）时才显示
+                if (audioList.size > 10) {
+                    FastScrollbar(
+                        listState = listState,
+                        itemCount = audioList.size,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .fillMaxHeight()
+                            .width(24.dp) // 增大触摸区域
+                    )
+                }
             }
         }
 
-        // --- 弹窗组件 ---
+        // --- 弹窗组件代码保持不变 ---
         if (viewModel.showDeleteDialog) {
             AlertDialog(
                 onDismissRequest = { viewModel.showDeleteDialog = false },
@@ -332,5 +358,80 @@ fun AudioPickerScreen(
                 dismissButton = { TextButton(onClick = { viewModel.showRenameDialog = false }) { Text("取消") } }
             )
         }
+    }
+}
+
+// 【新增】自定义快速滚动条组件
+@Composable
+fun FastScrollbar(
+    listState: LazyListState,
+    itemCount: Int,
+    modifier: Modifier = Modifier,
+    thumbColor: Color = MaterialTheme.colorScheme.primary
+) {
+    val scope = rememberCoroutineScope()
+    var isDragging by remember { mutableStateOf(false) }
+    var dragOffset by remember { mutableStateOf(0f) }
+
+    BoxWithConstraints(modifier = modifier) {
+        val maxHeight = constraints.maxHeight.toFloat()
+        // 滚动条滑块的高度，根据列表长度动态调整，但不小于 48dp
+        val thumbHeight = max(40f, maxHeight / max(1, itemCount) * 2)
+
+        // 计算当前滑块位置
+        // 如果正在拖拽，使用拖拽的 offset
+        // 如果没有拖拽，根据 List 的当前位置计算
+        val thumbOffset = if (isDragging) {
+            dragOffset
+        } else {
+            val firstVisible = listState.firstVisibleItemIndex.toFloat()
+            // 简单的比例计算
+            (firstVisible / max(1, itemCount)) * (maxHeight - thumbHeight)
+        }
+
+        // 绘制滑块
+        Box(
+            modifier = Modifier
+                .offset(y = (thumbOffset / LocalContext.current.resources.displayMetrics.density).dp) // 转换为 dp
+                .size(width = 6.dp, height = (thumbHeight / LocalContext.current.resources.displayMetrics.density).dp) // 视觉上是细条
+                .align(Alignment.TopCenter)
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (isDragging) thumbColor else thumbColor.copy(alpha = 0.5f))
+        )
+
+        // 透明的触摸响应区域（覆盖整个右侧条）
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .draggable(
+                    orientation = Orientation.Vertical,
+                    state = rememberDraggableState { delta ->
+                        isDragging = true
+                        dragOffset = (dragOffset + delta).coerceIn(0f, maxHeight - thumbHeight)
+
+                        // 根据位置计算应该滚动到哪一项
+                        val progress = dragOffset / (maxHeight - thumbHeight)
+                        val targetIndex = (progress * itemCount).toInt().coerceIn(0, itemCount - 1)
+
+                        scope.launch {
+                            listState.scrollToItem(targetIndex)
+                        }
+                    },
+                    onDragStopped = {
+                        isDragging = false
+                    },
+                    onDragStarted = { offset ->
+                        // 点击跳跃逻辑（可选）：点击某处直接跳过去
+                        // 简单起见，这里仅实现拖拽滑块时的逻辑
+                        // 如果要点哪里跳哪里，需要 update dragOffset
+                        isDragging = true
+                        val newOffset = (offset.y - thumbHeight / 2).coerceIn(0f, maxHeight - thumbHeight)
+                        dragOffset = newOffset
+                        val progress = dragOffset / (maxHeight - thumbHeight)
+                        val targetIndex = (progress * itemCount).toInt().coerceIn(0, itemCount - 1)
+                        scope.launch { listState.scrollToItem(targetIndex) }
+                    }
+                )
+        )
     }
 }

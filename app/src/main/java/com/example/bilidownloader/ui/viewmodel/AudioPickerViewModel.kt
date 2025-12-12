@@ -22,18 +22,18 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
 
     private val repository = MediaRepository(application)
 
-    // UI 观察的列表（可能是经过筛选的）
     private val _audioList = MutableStateFlow<List<AudioEntity>>(emptyList())
     val audioList = _audioList.asStateFlow()
 
-    // 原始完整列表缓存 (用于搜索时回退)
     private var allAudiosCache: List<AudioEntity> = emptyList()
-
-    // 当前搜索词 (用于排序时保持筛选状态)
     private var currentQuery: String = ""
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
+
+    // 【新增】正序/倒序状态 (默认倒序 false，因为通常想看最新的)
+    private val _isAscending = MutableStateFlow(false)
+    val isAscending = _isAscending.asStateFlow()
 
     var scrollIndex: Int = 0
     var scrollOffset: Int = 0
@@ -52,7 +52,6 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
     private var lastRenameNewName: String? = null
     private enum class ActionType { DELETE, RENAME }
 
-
     fun loadAudios() {
         viewModelScope.launch {
             _isLoading.value = true
@@ -60,7 +59,8 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
                 val list = repository.getAllAudio()
                 allAudiosCache = list
                 currentQuery = ""
-                _audioList.value = sortList(list, currentSortType)
+                // 初始加载应用当前的排序规则
+                _audioList.value = sortList(list, currentSortType, _isAscending.value)
             } catch (e: Exception) {
                 e.printStackTrace()
                 _audioList.value = emptyList()
@@ -82,21 +82,30 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
                 it.title.contains(query, ignoreCase = true)
             }
         }
-        _audioList.value = sortList(filteredList, currentSortType)
+        _audioList.value = sortList(filteredList, currentSortType, _isAscending.value)
     }
 
     fun changeSortType(type: SortType) {
         currentSortType = type
-        _audioList.value = sortList(_audioList.value, type)
+        _audioList.value = sortList(_audioList.value, type, _isAscending.value)
     }
 
-    private fun sortList(list: List<AudioEntity>, type: SortType): List<AudioEntity> {
+    // 【新增】切换正序/倒序
+    fun toggleSortOrder() {
+        _isAscending.value = !_isAscending.value
+        _audioList.value = sortList(_audioList.value, currentSortType, _isAscending.value)
+    }
+
+    // 【修改】排序逻辑，增加 isAscending 参数
+    private fun sortList(list: List<AudioEntity>, type: SortType, ascending: Boolean): List<AudioEntity> {
         return when (type) {
-            SortType.DATE -> list.sortedByDescending { it.dateAdded }
-            SortType.SIZE -> list.sortedByDescending { it.size }
-            SortType.DURATION -> list.sortedByDescending { it.duration }
+            SortType.DATE -> if (ascending) list.sortedBy { it.dateAdded } else list.sortedByDescending { it.dateAdded }
+            SortType.SIZE -> if (ascending) list.sortedBy { it.size } else list.sortedByDescending { it.size }
+            SortType.DURATION -> if (ascending) list.sortedBy { it.duration } else list.sortedByDescending { it.duration }
         }
     }
+
+    // ... (以下代码保持不变：permissionRequestHandled, deleteSelectedAudio, renameSelectedAudio, handleStorageResult, onPermissionGranted, updateListInMemory, shareAudio) ...
 
     fun permissionRequestHandled() {
         pendingPermissionIntent = null
@@ -184,34 +193,17 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    /**
-     * 【新增】分享音频
-     * @param context 用来启动 Activity
-     * @param audio 要分享的音频对象
-     */
     fun shareAudio(context: Context, audio: AudioEntity) {
         try {
-            // 1. 创建分享意图
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                // 设置数据类型为音频
                 type = "audio/*"
-                // 放入文件的 Uri (MediaStore Uri)
                 putExtra(Intent.EXTRA_STREAM, audio.uri)
-                // ★关键：授予接收方(如QQ)读取这个 Uri 的临时权限
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-
-            // 2. 创建系统选择器 (标题显示“分享音频到...”)
-            // 这样用户就可以选择 QQ、微信、保存到云盘等
             val chooser = Intent.createChooser(shareIntent, "分享音频到")
-
-            // 3. 启动
-            // 如果 context 不是 Activity (比如 ApplicationContext)，需要加这个 flag
-            // 但从 UI 传进来的通常是 Activity Context，加了也不影响
             if (context !is android.app.Activity) {
                 chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-
             context.startActivity(chooser)
         } catch (e: Exception) {
             e.printStackTrace()
