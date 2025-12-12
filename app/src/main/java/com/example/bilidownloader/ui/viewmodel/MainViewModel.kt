@@ -1,11 +1,13 @@
 package com.example.bilidownloader.ui.viewmodel
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.bilidownloader.data.api.RetrofitClient
 import com.example.bilidownloader.data.database.AppDatabase
 import com.example.bilidownloader.data.database.HistoryEntity
+import com.example.bilidownloader.data.database.UserEntity
 import com.example.bilidownloader.data.model.VideoDetail
 import com.example.bilidownloader.data.repository.DownloadRepository
 import com.example.bilidownloader.data.repository.HistoryRepository
@@ -35,74 +37,255 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<MainState>(MainState.Idle)
     val state = _state.asStateFlow()
 
+    // 兼容旧代码的登录状态流（由 currentUser 衍生）
     private val _isUserLoggedIn = MutableStateFlow(false)
     val isUserLoggedIn = _isUserLoggedIn.asStateFlow()
 
     private val repository = DownloadRepository()
     private val redirectClient = OkHttpClient.Builder().followRedirects(true).build()
+
+    // 数据库初始化
     private val database = AppDatabase.getDatabase(application)
     private val historyRepository = HistoryRepository(database.historyDao())
+    private val userDao = database.userDao() // 用户表操作接口
 
+    // 历史记录流
     val historyList = historyRepository.allHistory.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
 
+    // 用户账号列表流
+    val userList = userDao.getAllUsers().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    // 当前活跃用户
+    private val _currentUser = MutableStateFlow<UserEntity?>(null)
+    val currentUser = _currentUser.asStateFlow()
+
     private var currentBvid: String = ""
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
 
     init {
-        checkLoginStatus()
+        restoreSession()
     }
 
-    fun checkLoginStatus() {
-        val sess = CookieManager.getCookieValue(getApplication(), "SESSDATA")
-        _isUserLoggedIn.value = !sess.isNullOrEmpty()
-    }
+    // ========================================================================
+    // 账号管理核心逻辑
+    // ========================================================================
 
-    fun logout() {
+    /**
+     * APP 启动时恢复会话
+     * 检查数据库中是否有标记为 isLogin=true 的用户
+     */
+    private fun restoreSession() {
         viewModelScope.launch(Dispatchers.IO) {
-            val csrf = CookieManager.getCookieValue(getApplication(), "bili_jct")
-            if (!csrf.isNullOrEmpty()) {
+            val activeUser = userDao.getCurrentUser()
+            if (activeUser != null) {
+                // 同步 Cookie 到网络层
+                CookieManager.saveSessData(getApplication(), activeUser.sessData)
+                _currentUser.value = activeUser
+                _isUserLoggedIn.value = true
+            } else {
+                // 游客模式：确保清除 Cookie
+                CookieManager.clearCookies(getApplication())
+                _currentUser.value = null
+                _isUserLoggedIn.value = false
+            }
+        }
+    }
+
+    /**
+     * 【新增】同步方法：用于短信登录返回后，把 SharedPreferences 里的临时 Cookie
+     * 升级为数据库里的正式用户。
+     */
+    fun syncCookieToUserDB() {
+        viewModelScope.launch(Dispatchers.IO) {
+            // 1. 获取当前本地存储的 Cookie (可能是短信登录刚写入的)
+            val localCookie = CookieManager.getSessDataValue(getApplication())
+
+            // 2. 如果本地有 Cookie
+            if (localCookie.isNotEmpty()) {
+                // 尝试将其解析并作为用户存入数据库
+                // addOrUpdateAccount 内部会去调 API 验证，并更新数据库和状态
+                addOrUpdateAccount(localCookie)
+            }
+        }
+    }
+
+    /**
+     * 添加或更新账号
+     * 包含了智能 Cookie 格式化逻辑和 API 验证
+     */
+    fun addOrUpdateAccount(cookieInput: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. 智能格式化 Cookie (处理不带 SESSDATA= 的情况)
+                val rawCookie = formatCookie(cookieInput)
+                if (rawCookie.isEmpty()) return@launch
+
+                // 2. 临时保存 Cookie 到管理器，以便发起 API 请求
+                CookieManager.saveSessData(getApplication(), rawCookie)
+
+                // 3. 调用 API 获取用户信息 (需要在 BiliApiService 中定义 getSelfInfo)
+                val response = RetrofitClient.service.getSelfInfo().execute()
+                val userData = response.body()?.data
+
+                if (userData != null && userData.isLogin) {
+                    // 4. 解析 CSRF Token (bili_jct)，用于后续退出登录
+                    val csrf = CookieManager.getCookieValue(getApplication(), "bili_jct") ?: ""
+
+                    // 5. 构建实体
+                    val newUser = UserEntity(
+                        mid = userData.mid,
+                        name = userData.uname,
+                        face = userData.face,
+                        sessData = rawCookie,
+                        biliJct = csrf,
+                        isLogin = true // 设为当前活跃
+                    )
+
+                    // 6. 更新数据库：清除旧活跃状态 -> 插入新用户
+                    userDao.clearAllLoginStatus()
+                    userDao.insertUser(newUser)
+
+                    _currentUser.value = newUser
+                    _isUserLoggedIn.value = true
+
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(getApplication(), "已登录: ${userData.uname}", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    throw Exception("Cookie 无效或已过期")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                // 验证失败，回滚状态
+                restoreSession()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "登录失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    /**
+     * 切换账号
+     */
+    fun switchAccount(user: UserEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            // 1. 更新数据库状态
+            userDao.clearAllLoginStatus()
+            userDao.setLoginStatus(user.mid)
+
+            // 2. 更新网络层 Cookie
+            CookieManager.saveSessData(getApplication(), user.sessData)
+            _currentUser.value = user
+            _isUserLoggedIn.value = true
+
+            withContext(Dispatchers.Main) {
+                Toast.makeText(getApplication(), "已切换到: ${user.name}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /**
+     * 退出当前账号（转为游客模式，不删除账号）
+     */
+    fun quitToGuestMode() {
+        viewModelScope.launch(Dispatchers.IO) {
+            userDao.clearAllLoginStatus()
+            CookieManager.clearCookies(getApplication())
+            _currentUser.value = null
+            _isUserLoggedIn.value = false
+        }
+    }
+
+    /**
+     * 彻底注销账号（服务端失效 + 从列表删除）
+     */
+    fun logoutAndRemove(user: UserEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            // 1. 尝试发送注销请求
+            if (user.biliJct.isNotEmpty()) {
                 try {
-                    RetrofitClient.service.logout(csrf).execute()
+                    // 临时切换 Cookie 以发送请求（如果删的不是当前账号，可能会失败，忽略即可）
+                    val currentSess = CookieManager.getSessDataValue(getApplication())
+                    CookieManager.saveSessData(getApplication(), user.sessData)
+                    RetrofitClient.service.logout(user.biliJct).execute()
+                    // 恢复之前的 Cookie
+                    if (currentSess.isNotEmpty()) {
+                        CookieManager.saveSessData(getApplication(), currentSess)
+                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
             }
-            CookieManager.clearCookies(getApplication())
-            reset()
-            checkLoginStatus()
+
+            // 2. 从数据库删除
+            userDao.deleteUser(user)
+
+            // 3. 如果删除的是当前正在用的账号，切回游客
+            if (currentUser.value?.mid == user.mid) {
+                quitToGuestMode()
+            }
         }
     }
 
-    // 【修改后的 saveCookie 方法】
+    /**
+     * 【修改】旧的 saveCookie 方法（兼容性）
+     * 不再仅仅存储 Prefs，而是直接去触发“添加用户”的逻辑。
+     */
     fun saveCookie(cookie: String) {
-        val trimmedCookie = cookie.trim()
-        if (trimmedCookie.isEmpty()) return
-
-        // 智能判断：如果用户只粘贴了值（不含等号），自动补全 SESSDATA=前缀
-        // 如果包含 SESSDATA= (忽略大小写)，则认为是标准格式
-        val finalCookie = if (trimmedCookie.contains("SESSDATA=", ignoreCase = true)) {
-            trimmedCookie
-        } else if (trimmedCookie.contains("=")) {
-            // 如果包含等号但不是 SESSDATA，可能是其他 Cookie 格式，直接保存尝试
-            trimmedCookie
-        } else {
-            // 既没有等号，也没有 Key，默认用户粘贴的是 SESSDATA 的值
-            "SESSDATA=$trimmedCookie"
-        }
-
-        CookieManager.saveSessData(getApplication(), finalCookie)
-        // 保存后立即检查状态，刷新 UI
-        checkLoginStatus()
+        // 直接转发给新逻辑，确保入库和状态更新
+        addOrUpdateAccount(cookie)
     }
 
+    // 兼容旧代码的登出（UI菜单点击退出时调用）
+    fun logout() {
+        // 如果有当前用户，调用完整的注销流程
+        val current = _currentUser.value
+        if (current != null) {
+            logoutAndRemove(current)
+        } else {
+            // 否则执行基础清理
+            quitToGuestMode()
+        }
+    }
+
+    // 辅助工具：智能格式化 Cookie
+    private fun formatCookie(input: String): String {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return ""
+        return if (trimmed.contains("SESSDATA=", ignoreCase = true) || trimmed.contains("=")) {
+            trimmed
+        } else {
+            "SESSDATA=$trimmed"
+        }
+    }
+
+    // 辅助工具：获取当前 Cookie 值
     fun getCurrentCookieValue(): String {
         return CookieManager.getSessDataValue(getApplication())
     }
+
+    /**
+     * 【修改】旧的 checkLoginStatus 升级
+     * 负责将短信登录写入的临时 Cookie 升级为数据库用户
+     */
+    fun checkLoginStatus() {
+        // 尝试将本地 Cookie 升级为数据库用户，这也会触发状态更新
+        syncCookieToUserDB()
+    }
+
+    // ========================================================================
+    // 业务逻辑 (解析、下载) - 保持不变
+    // ========================================================================
 
     fun reset() {
         _state.value = MainState.Idle
@@ -223,7 +406,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val finalVideoOpts = videoOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
                 val finalAudioOpts = audioOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
 
-                // 直接在构建状态时传入默认选项
                 _state.value = MainState.ChoiceSelect(
                     detail = detail,
                     videoFormats = finalVideoOpts,
@@ -262,7 +444,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // 更新选项时，直接更新 StateFlow
     fun updateSelectedVideo(option: FormatOption) {
         val currentState = _state.value
         if (currentState is MainState.ChoiceSelect) {
@@ -270,7 +451,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // 更新选项时，直接更新 StateFlow
     fun updateSelectedAudio(option: FormatOption) {
         val currentState = _state.value
         if (currentState is MainState.ChoiceSelect) {
@@ -279,7 +459,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startDownload(audioOnly: Boolean) {
-        // 从当前 State 中获取选项
         val currentState = _state.value as? MainState.ChoiceSelect ?: return
         val vOpt = currentState.selectedVideo
         val aOpt = currentState.selectedAudio
@@ -297,7 +476,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = MainState.Processing("准备下载...", 0f)
 
             try {
-                // ... 获取密钥、签名 ...
                 val navResp = RetrofitClient.service.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
@@ -312,7 +490,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     put("fourk", "1")
                 }
                 val signedQuery = BiliSigner.signParams(params, mixinKey)
-                // ...
+
                 val queryMap = signedQuery.split("&").associate {
                     val p = it.split("=")
                     URLDecoder.decode(p[0], "UTF-8") to URLDecoder.decode(p[1], "UTF-8")
@@ -385,8 +563,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             _state.value = MainState.Processing("正在获取音频流...", 0f)
             try {
-                // (省略重复的 API 调用代码，逻辑不变)
-                // ...
                 val navResp = RetrofitClient.service.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
@@ -425,7 +601,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 withContext(Dispatchers.Main) {
-                    // 恢复状态时，需要重新构建完整的 ChoiceSelect，包括选项
                     currentDetail?.let {
                         val videoOpts = (state.value as? MainState.ChoiceSelect)?.videoFormats ?: emptyList()
                         val audioOpts = (state.value as? MainState.ChoiceSelect)?.audioFormats ?: emptyList()
@@ -433,7 +608,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             detail = it,
                             videoFormats = videoOpts,
                             audioFormats = audioOpts,
-                            selectedVideo = videoOpts.firstOrNull(), // 恢复默认或保持之前的选择
+                            selectedVideo = videoOpts.firstOrNull(),
                             selectedAudio = audioOpts.firstOrNull()
                         )
                     }
