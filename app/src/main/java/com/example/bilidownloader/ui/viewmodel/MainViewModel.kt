@@ -362,7 +362,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         180L
                     }
 
+                    // ==========================================================
+                    // 【核心修改】过滤 AV1 编码
+                    // ==========================================================
                     playData.dash.video.forEach { media ->
+                        // 由于编译的 FFmpeg 版本过低不支持 av1 合并，在此处直接过滤掉
+                        if (media.codecs?.startsWith("av01") == true) {
+                            return@forEach // 跳过本次循环，不添加到选项列表中
+                        }
+
                         val qIndex = playData.accept_quality?.indexOf(media.id) ?: -1
                         val desc = if (qIndex >= 0 && qIndex < (playData.accept_description?.size ?: 0)) {
                             playData.accept_description?.get(qIndex) ?: "未知画质"
@@ -371,6 +379,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val codecSimple = when {
                             media.codecs?.startsWith("avc") == true -> "AVC"
                             media.codecs?.startsWith("hev") == true -> "HEVC"
+                            // av01 已经被上面过滤了，这里理论上不会走到，但保留以防万一
                             media.codecs?.startsWith("av01") == true -> "AV1"
                             else -> "MP4"
                         }
@@ -387,6 +396,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             estimatedSize = estimatedSize
                         ))
                     }
+                    // ==========================================================
+                    // 核心修改结束
+                    // ==========================================================
 
                     playData.dash.audio?.forEach { media ->
                         val idMap = mapOf(30280 to "192K", 30232 to "132K", 30216 to "64K", 30250 to "杜比全景声", 30251 to "Hi-Res")
