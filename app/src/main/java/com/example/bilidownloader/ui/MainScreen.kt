@@ -16,12 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.bilidownloader.ui.screen.AudioCropScreen
-import com.example.bilidownloader.ui.screen.AudioPickerScreen
-import com.example.bilidownloader.ui.screen.HomeScreen
-import com.example.bilidownloader.ui.screen.ToolsScreen
-import com.example.bilidownloader.ui.screen.TranscriptionScreen
-import com.example.bilidownloader.ui.screen.LoginScreen // 【新增】导入 LoginScreen
+import com.example.bilidownloader.ui.screen.*
 import com.example.bilidownloader.utils.StorageHelper
 import java.net.URLEncoder
 
@@ -31,6 +26,8 @@ fun MainScreen() {
 
     Scaffold(
         bottomBar = {
+            // 这里通常可以加逻辑：只有在首页和工具页才显示底部栏，
+            // 但为了保持原有结构简单，暂不隐藏
             NavigationBar {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
@@ -68,39 +65,40 @@ fun MainScreen() {
             startDestination = "home",
             modifier = Modifier.padding(innerPadding)
         ) {
-            // 定义房间 1：首页
+            // --- 首页 ---
             composable("home") {
                 HomeScreen(
                     onNavigateToTranscribe = { path ->
                         // 收到路径，跳转到转写页
-                        val encodedPath = java.net.URLEncoder.encode(path, "UTF-8")
+                        val encodedPath = URLEncoder.encode(path, "UTF-8")
                         navController.navigate("transcription/$encodedPath")
                     },
-                    onNavigateToLogin = { // <--- 【新增】跳转到登录页的回调
+                    onNavigateToLogin = {
                         navController.navigate("login")
                     }
                 )
             }
 
-            // 【新增】注册登录页路由
+            // --- 登录页 ---
             composable("login") {
                 LoginScreen(
                     onBack = { navController.popBackStack() }
                 )
             }
 
-            // 1. 修改 ToolsScreen 的跳转
+            // --- 工具箱首页 ---
             composable("tools") {
                 ToolsScreen(
-                    onNavigateToAudioCrop = { navController.navigate("audio_picker") }, // 原来的裁剪路线
-                    onNavigateToTranscription = { navController.navigate("audio_picker_transcribe") } // 【修改】新的转写路线
+                    onNavigateToAudioCrop = { navController.navigate("audio_picker") },
+                    onNavigateToTranscription = { navController.navigate("audio_picker_transcribe") }
                 )
             }
 
-            // (给裁剪用的) 保持不变
+            // --- 音频选择页 (用于剪辑) ---
             composable("audio_picker") {
                 val context = LocalContext.current
                 AudioPickerScreen(
+                    onBack = { navController.popBackStack() }, // 【新增】返回处理
                     onAudioSelected = { uri ->
                         val tempName = "temp_crop_${System.currentTimeMillis()}.mp3"
                         val cacheFile = StorageHelper.copyUriToCache(context, uri, tempName)
@@ -114,6 +112,7 @@ fun MainScreen() {
                 )
             }
 
+            // --- 剪辑详情页 ---
             composable(
                 route = "audio_crop/{uri}",
                 arguments = listOf(navArgument("uri") { type = NavType.StringType })
@@ -125,34 +124,33 @@ fun MainScreen() {
                 )
             }
 
-            // 2. 【新增】给转写用的音频选择页
+            // --- 音频选择页 (用于转写) ---
             composable("audio_picker_transcribe") {
-                val context = androidx.compose.ui.platform.LocalContext.current
-                com.example.bilidownloader.ui.screen.AudioPickerScreen(
+                val context = LocalContext.current
+                AudioPickerScreen(
+                    onBack = { navController.popBackStack() }, // 【新增】返回处理
                     onAudioSelected = { uri ->
-                        // 复用之前的逻辑：先复制到缓存，解决权限问题
                         val tempName = "trans_input_${System.currentTimeMillis()}.mp3"
-                        val cacheFile = com.example.bilidownloader.utils.StorageHelper.copyUriToCache(context, uri, tempName)
+                        val cacheFile = StorageHelper.copyUriToCache(context, uri, tempName)
 
                         if (cacheFile != null) {
                             val encodedPath = URLEncoder.encode(cacheFile.absolutePath, "UTF-8")
-                            // 跳转到转写页，带上文件路径
                             navController.navigate("transcription/$encodedPath")
                         } else {
-                            android.widget.Toast.makeText(context, "文件读取失败", android.widget.Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "文件读取失败", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
             }
 
-            // 3. 【修改】转写页 (接收路径参数)
+            // --- 转写详情页 ---
             composable(
                 route = "transcription/{path}",
-                arguments = listOf(androidx.navigation.navArgument("path") { type = androidx.navigation.NavType.StringType })
+                arguments = listOf(navArgument("path") { type = NavType.StringType })
             ) { backStackEntry ->
                 val path = backStackEntry.arguments?.getString("path") ?: ""
-                com.example.bilidownloader.ui.screen.TranscriptionScreen(
-                    filePath = path, // 传参给界面
+                TranscriptionScreen(
+                    filePath = path,
                     onBack = { navController.popBackStack() }
                 )
             }

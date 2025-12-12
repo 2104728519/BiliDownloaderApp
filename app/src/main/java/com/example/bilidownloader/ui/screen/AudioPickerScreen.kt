@@ -48,6 +48,7 @@ import kotlin.math.min
 @Composable
 fun AudioPickerScreen(
     viewModel: AudioPickerViewModel = viewModel(),
+    onBack: () -> Unit, // 【新增】接收返回回调
     onAudioSelected: (Uri) -> Unit
 ) {
     val context = LocalContext.current
@@ -55,7 +56,7 @@ fun AudioPickerScreen(
     val audioList by viewModel.audioList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    // 【新增】监听正序/倒序状态
+    // 监听正序/倒序状态
     val isAscending by viewModel.isAscending.collectAsState()
 
     var isSearchActive by remember { mutableStateOf(false) }
@@ -171,6 +172,12 @@ fun AudioPickerScreen(
             } else {
                 CenterAlignedTopAppBar(
                     title = { Text("选择音频") },
+                    // 【新增】返回按钮
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                    },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     ),
@@ -191,7 +198,7 @@ fun AudioPickerScreen(
 
                             Divider()
 
-                            // 【新增】正序/倒序切换选项
+                            // 正序/倒序切换选项
                             DropdownMenuItem(
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -206,7 +213,6 @@ fun AudioPickerScreen(
                                 },
                                 onClick = {
                                     viewModel.toggleSortOrder()
-                                    // 保持菜单打开或关闭取决于你的喜好，这里关闭让用户看到结果
                                     showSortMenu = false
                                 }
                             )
@@ -226,7 +232,7 @@ fun AudioPickerScreen(
         }
     ) { paddingValues ->
 
-        // 【修改】使用 Box 包裹 LazyColumn 以便叠加滚动条
+        // 使用 Box 包裹 LazyColumn 以便叠加滚动条
         Box(
             modifier = Modifier
                 .padding(paddingValues)
@@ -303,8 +309,7 @@ fun AudioPickerScreen(
                     }
                 }
 
-                // 【新增】快速滚动条
-                // 只有当列表足够长（比如超过 10 个）时才显示
+                // 快速滚动条
                 if (audioList.size > 10) {
                     FastScrollbar(
                         listState = listState,
@@ -312,7 +317,7 @@ fun AudioPickerScreen(
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .fillMaxHeight()
-                            .width(24.dp) // 增大触摸区域
+                            .width(24.dp)
                     )
                 }
             }
@@ -361,7 +366,7 @@ fun AudioPickerScreen(
     }
 }
 
-// 【新增】自定义快速滚动条组件
+// 快速滚动条组件 (保持不变，但需包含在文件内)
 @Composable
 fun FastScrollbar(
     listState: LazyListState,
@@ -375,31 +380,28 @@ fun FastScrollbar(
 
     BoxWithConstraints(modifier = modifier) {
         val maxHeight = constraints.maxHeight.toFloat()
-        // 滚动条滑块的高度，根据列表长度动态调整，但不小于 48dp
+        // 滚动条滑块的高度，根据列表长度动态调整，但不小于 40f
         val thumbHeight = max(40f, maxHeight / max(1, itemCount) * 2)
 
         // 计算当前滑块位置
-        // 如果正在拖拽，使用拖拽的 offset
-        // 如果没有拖拽，根据 List 的当前位置计算
         val thumbOffset = if (isDragging) {
             dragOffset
         } else {
             val firstVisible = listState.firstVisibleItemIndex.toFloat()
-            // 简单的比例计算
             (firstVisible / max(1, itemCount)) * (maxHeight - thumbHeight)
         }
 
         // 绘制滑块
         Box(
             modifier = Modifier
-                .offset(y = (thumbOffset / LocalContext.current.resources.displayMetrics.density).dp) // 转换为 dp
-                .size(width = 6.dp, height = (thumbHeight / LocalContext.current.resources.displayMetrics.density).dp) // 视觉上是细条
+                .offset(y = (thumbOffset / LocalContext.current.resources.displayMetrics.density).dp)
+                .size(width = 6.dp, height = (thumbHeight / LocalContext.current.resources.displayMetrics.density).dp)
                 .align(Alignment.TopCenter)
                 .clip(RoundedCornerShape(4.dp))
                 .background(if (isDragging) thumbColor else thumbColor.copy(alpha = 0.5f))
         )
 
-        // 透明的触摸响应区域（覆盖整个右侧条）
+        // 透明的触摸响应区域
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -408,22 +410,14 @@ fun FastScrollbar(
                     state = rememberDraggableState { delta ->
                         isDragging = true
                         dragOffset = (dragOffset + delta).coerceIn(0f, maxHeight - thumbHeight)
-
-                        // 根据位置计算应该滚动到哪一项
                         val progress = dragOffset / (maxHeight - thumbHeight)
                         val targetIndex = (progress * itemCount).toInt().coerceIn(0, itemCount - 1)
-
                         scope.launch {
                             listState.scrollToItem(targetIndex)
                         }
                     },
-                    onDragStopped = {
-                        isDragging = false
-                    },
+                    onDragStopped = { isDragging = false },
                     onDragStarted = { offset ->
-                        // 点击跳跃逻辑（可选）：点击某处直接跳过去
-                        // 简单起见，这里仅实现拖拽滑块时的逻辑
-                        // 如果要点哪里跳哪里，需要 update dragOffset
                         isDragging = true
                         val newOffset = (offset.y - thumbHeight / 2).coerceIn(0f, maxHeight - thumbHeight)
                         dragOffset = newOffset
