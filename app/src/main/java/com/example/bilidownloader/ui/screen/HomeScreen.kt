@@ -286,14 +286,16 @@ fun HomeScreen(
                                 QualitySelector(
                                     label = "视频画质",
                                     options = currentState.videoFormats,
-                                    selectedOption = viewModel.selectedVideoOption,
+                                    // 【核心修改】直接从 ChoiceSelect 状态中读取 selectedVideo
+                                    selectedOption = currentState.selectedVideo,
                                     onOptionSelected = { viewModel.updateSelectedVideo(it) }
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 QualitySelector(
                                     label = "音频音质",
                                     options = currentState.audioFormats,
-                                    selectedOption = viewModel.selectedAudioOption,
+                                    // 【核心修改】直接从 ChoiceSelect 状态中读取 selectedAudio
+                                    selectedOption = currentState.selectedAudio,
                                     onOptionSelected = { viewModel.updateSelectedAudio(it) }
                                 )
                             }

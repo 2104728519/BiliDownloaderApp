@@ -35,7 +35,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<MainState>(MainState.Idle)
     val state = _state.asStateFlow()
 
-    // 【新增】登录状态 StateFlow
     private val _isUserLoggedIn = MutableStateFlow(false)
     val isUserLoggedIn = _isUserLoggedIn.asStateFlow()
 
@@ -54,54 +53,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
 
-    var selectedVideoOption: FormatOption? = null
-    var selectedAudioOption: FormatOption? = null
+    // 【删除】旧的变量 selectedVideoOption 和 selectedAudioOption 已被移除
+    // 现在状态由 _state 统一管理
 
-    // 【新增】初始化时检查登录状态
     init {
         checkLoginStatus()
     }
 
-    // 【新增】检查登录状态并更新 StateFlow
     fun checkLoginStatus() {
         val sess = CookieManager.getCookieValue(getApplication(), "SESSDATA")
         _isUserLoggedIn.value = !sess.isNullOrEmpty()
     }
 
-    // 【修改】退出登录逻辑
     fun logout() {
         viewModelScope.launch(Dispatchers.IO) {
-            // 1. 获取 CSRF Token (bili_jct)
             val csrf = CookieManager.getCookieValue(getApplication(), "bili_jct")
-
             if (!csrf.isNullOrEmpty()) {
                 try {
-                    // 2. 请求服务器注销
-                    // 这里使用 .execute() 在 IO 线程同步执行，并忽略结果
                     RetrofitClient.service.logout(csrf).execute()
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    // 即使网络失败，也要继续执行本地清除，确保本地状态正确
                 }
             }
-
-            // 3. 清除本地 Cookie
             CookieManager.clearCookies(getApplication())
-
-            // 4. 重置状态
             reset()
-
-            // 5. 更新登录状态 StateFlow
             checkLoginStatus()
         }
     }
 
-    // 【已移除】isLoggedIn() 方法 (现在使用 isUserLoggedIn StateFlow)
-
-    // 【修改】提供给 UI 调用的 Cookie 操作方法
     fun saveCookie(cookie: String) {
         CookieManager.saveSessData(getApplication(), cookie)
-        // 更新登录状态 StateFlow
         checkLoginStatus()
     }
 
@@ -109,11 +90,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return CookieManager.getSessDataValue(getApplication())
     }
 
-
     fun reset() {
         _state.value = MainState.Idle
-        selectedVideoOption = null
-        selectedAudioOption = null
     }
 
     fun deleteHistories(list: List<HistoryEntity>) {
@@ -122,8 +100,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // analyzeInput 和 startDownload 方法中的 `qn` 参数现在会因为 Cookie 的存在而自动获取更高清晰度
-    // 因此这部分逻辑不需要显式修改
     fun analyzeInput(input: String) {
         viewModelScope.launch(Dispatchers.IO) {
             _state.value = MainState.Analyzing
@@ -166,7 +142,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val params = TreeMap<String, Any>().apply {
                     put("bvid", currentBvid)
                     put("cid", currentCid)
-                    put("qn", "127") // 直接请求最高可用画质，服务器会返回所有可用的
+                    put("qn", "127")
                     put("fnval", "4048")
                     put("fourk", "1")
                 }
@@ -178,7 +154,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val playResp = RetrofitClient.service.getPlayUrl(queryMap).execute()
                 val playData = playResp.body()?.data ?: throw Exception("无法获取播放列表: ${playResp.errorBody()?.string()}")
-
 
                 val videoOpts = mutableListOf<FormatOption>()
                 val audioOpts = mutableListOf<FormatOption>()
@@ -195,7 +170,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val desc = if (qIndex >= 0 && qIndex < (playData.accept_description?.size ?: 0)) {
                             playData.accept_description?.get(qIndex) ?: "未知画质"
                         } else "未知画质 ${media.id}"
-
 
                         val codecSimple = when {
                             media.codecs?.startsWith("avc") == true -> "AVC"
@@ -235,10 +209,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val finalVideoOpts = videoOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
                 val finalAudioOpts = audioOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
 
-                selectedVideoOption = finalVideoOpts.firstOrNull()
-                selectedAudioOption = finalAudioOpts.firstOrNull()
-
-                _state.value = MainState.ChoiceSelect(detail, finalVideoOpts, finalAudioOpts)
+                // 【修改】直接在构建状态时传入默认选项
+                _state.value = MainState.ChoiceSelect(
+                    detail = detail,
+                    videoFormats = finalVideoOpts,
+                    audioFormats = finalAudioOpts,
+                    selectedVideo = finalVideoOpts.firstOrNull(),
+                    selectedAudio = finalAudioOpts.firstOrNull()
+                )
 
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -270,9 +248,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // 【修改】更新选项时，直接更新 StateFlow
+    fun updateSelectedVideo(option: FormatOption) {
+        val currentState = _state.value
+        if (currentState is MainState.ChoiceSelect) {
+            _state.value = currentState.copy(selectedVideo = option)
+        }
+    }
+
+    // 【修改】更新选项时，直接更新 StateFlow
+    fun updateSelectedAudio(option: FormatOption) {
+        val currentState = _state.value
+        if (currentState is MainState.ChoiceSelect) {
+            _state.value = currentState.copy(selectedAudio = option)
+        }
+    }
+
     fun startDownload(audioOnly: Boolean) {
-        val vOpt = selectedVideoOption
-        val aOpt = selectedAudioOption
+        // 【修改】从当前 State 中获取选项
+        val currentState = _state.value as? MainState.ChoiceSelect ?: return
+        val vOpt = currentState.selectedVideo
+        val aOpt = currentState.selectedAudio
 
         if (!audioOnly && vOpt == null) {
             _state.value = MainState.Error("请先选择视频画质")
@@ -287,6 +283,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = MainState.Processing("准备下载...", 0f)
 
             try {
+                // (下载逻辑与之前保持一致，省略重复代码以节省篇幅，核心逻辑不变)
+                // ... 获取密钥、签名 ...
                 val navResp = RetrofitClient.service.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
@@ -301,6 +299,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     put("fourk", "1")
                 }
                 val signedQuery = BiliSigner.signParams(params, mixinKey)
+                // ...
                 val queryMap = signedQuery.split("&").associate {
                     val p = it.split("=")
                     URLDecoder.decode(p[0], "UTF-8") to URLDecoder.decode(p[1], "UTF-8")
@@ -310,8 +309,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val dash = playResp.body()?.data?.dash ?: throw Exception("无法获取流地址")
 
                 val videoUrl = if (!audioOnly) {
-                    dash.video.find { it.id == vOpt!!.id && it.codecs == vOpt.codecs }?.baseUrl // 精确匹配
-                        ?: dash.video.find { it.id == vOpt!!.id }?.baseUrl // 降级匹配ID
+                    dash.video.find { it.id == vOpt!!.id && it.codecs == vOpt.codecs }?.baseUrl
+                        ?: dash.video.find { it.id == vOpt!!.id }?.baseUrl
                         ?: throw Exception("未找到选中的视频流")
                 } else null
 
@@ -369,18 +368,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateSelectedVideo(option: FormatOption) {
-        selectedVideoOption = option
-    }
-
-    fun updateSelectedAudio(option: FormatOption) {
-        selectedAudioOption = option
-    }
-
     fun prepareForTranscription(onReady: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             _state.value = MainState.Processing("正在获取音频流...", 0f)
             try {
+                // (省略重复的 API 调用代码，逻辑不变)
+                // ...
                 val navResp = RetrofitClient.service.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
@@ -419,10 +412,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 withContext(Dispatchers.Main) {
+                    // 【修改】恢复状态时，需要重新构建完整的 ChoiceSelect，包括选项
                     currentDetail?.let {
-                        _state.value = MainState.ChoiceSelect(it,
-                            (state.value as? MainState.ChoiceSelect)?.videoFormats ?: emptyList(),
-                            (state.value as? MainState.ChoiceSelect)?.audioFormats ?: emptyList()
+                        val videoOpts = (state.value as? MainState.ChoiceSelect)?.videoFormats ?: emptyList()
+                        val audioOpts = (state.value as? MainState.ChoiceSelect)?.audioFormats ?: emptyList()
+                        _state.value = MainState.ChoiceSelect(
+                            detail = it,
+                            videoFormats = videoOpts,
+                            audioFormats = audioOpts,
+                            selectedVideo = videoOpts.firstOrNull(), // 恢复默认或保持之前的选择
+                            selectedAudio = audioOpts.firstOrNull()
                         )
                     }
                     onReady(tempFile.absolutePath)

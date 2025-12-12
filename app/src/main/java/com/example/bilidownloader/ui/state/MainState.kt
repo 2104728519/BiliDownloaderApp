@@ -29,7 +29,10 @@ sealed class MainState {
     data class ChoiceSelect(
         val detail: VideoDetail,
         val videoFormats: List<FormatOption>, // 可选视频画质
-        val audioFormats: List<FormatOption>  // 可选音频音质
+        val audioFormats: List<FormatOption>,  // 可选音频音质
+        // 👇 新增字段：用于记录用户当前选中的视频和音频格式
+        val selectedVideo: FormatOption?,
+        val selectedAudio: FormatOption?
     ) : MainState()
 
     // 4. 下载/处理中：用户做出了选择，正在干活
