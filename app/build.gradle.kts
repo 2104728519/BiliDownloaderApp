@@ -24,8 +24,8 @@ android {
         applicationId = "com.example.bilidownloader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.8"
+        versionCode = 10
+        versionName = "1.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -106,5 +106,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
     // 阿里云 OSS SDK
     implementation("com.aliyun.dpa:oss-android-sdk:2.9.19")
+    // 1. OkHttp 日志拦截器 (用于在控制台打印 API 返回的 JSON)
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
+    // 2. 协程测试库 (单元测试中 runBlocking 需要用到它)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }

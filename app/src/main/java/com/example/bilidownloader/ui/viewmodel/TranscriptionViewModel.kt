@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.bilidownloader.data.api.RetrofitClient
 import com.example.bilidownloader.data.model.TranscriptionInput
 import com.example.bilidownloader.data.model.TranscriptionRequest
+import com.example.bilidownloader.utils.CookieManager // 【新增】导入 CookieManager
+import com.example.bilidownloader.utils.ConsoleScraper // 【新增】导入爬取工具
 import com.example.bilidownloader.utils.OssManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -29,6 +31,47 @@ class TranscriptionViewModel(application: Application) : AndroidViewModel(applic
         data class Processing(val step: String) : TransState()
         data class Success(val text: String) : TransState()
         data class Error(val msg: String) : TransState()
+    }
+
+    // 【新增】用于承载用量信息的状态
+    private val _usageState = MutableStateFlow<UsageState>(UsageState.Loading)
+    val usageState = _usageState.asStateFlow()
+
+    sealed class UsageState {
+        object Loading : UsageState()
+        data class Success(val usedMinutes: Double, val totalMinutes: Double = 600.0) : UsageState() // 10小时 = 600分钟
+        data class Error(val msg: String) : UsageState()
+        object Idle: UsageState() // 未填写凭证时的状态
+    }
+
+    // 【新增】在 ViewModel 初始化时就尝试加载用量
+    init {
+        loadUsage()
+    }
+
+    // 【新增】加载用量的函数
+    fun loadUsage() {
+        viewModelScope.launch {
+            _usageState.value = UsageState.Loading
+            val context = getApplication<Application>()
+
+            val cookie = CookieManager.getAliyunConsoleCookie(context)
+            val secToken = CookieManager.getAliyunConsoleSecToken(context)
+
+            if (cookie.isNullOrBlank() || secToken.isNullOrBlank()) {
+                _usageState.value = UsageState.Idle // 提示用户填写凭证
+                return@launch
+            }
+
+            // 调用 ConsoleScraper 类进行网络爬取查询
+            val totalSeconds = ConsoleScraper.getTotalUsageInSeconds(cookie, secToken)
+            if (totalSeconds != null) {
+                // 成功，将秒数转换为分钟数
+                _usageState.value = UsageState.Success(usedMinutes = totalSeconds / 60)
+            } else {
+                _usageState.value = UsageState.Error("查询失败，请检查凭证是否过期")
+            }
+        }
     }
 
     // 接收 String 路径 (URL Encoded)

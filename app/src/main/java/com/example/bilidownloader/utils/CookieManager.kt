@@ -110,4 +110,23 @@ object CookieManager {
     fun getSessDataValue(context: Context): String {
         return getCookieMap(context)["SESSDATA"] ?: ""
     }
+
+    // --- 【新增】用于保存阿里云控制台的凭证 ---
+    private const val KEY_ALIYUN_CONSOLE_COOKIE = "ALIYUN_CONSOLE_COOKIE"
+    private const val KEY_ALIYUN_CONSOLE_SEC_TOKEN = "ALIYUN_CONSOLE_SEC_TOKEN"
+
+    fun saveAliyunConsoleCredentials(context: Context, cookie: String, secToken: String) {
+        getPrefs(context).edit()
+            .putString(KEY_ALIYUN_CONSOLE_COOKIE, cookie)
+            .putString(KEY_ALIYUN_CONSOLE_SEC_TOKEN, secToken)
+            .apply()
+    }
+
+    fun getAliyunConsoleCookie(context: Context): String? {
+        return getPrefs(context).getString(KEY_ALIYUN_CONSOLE_COOKIE, null)
+    }
+
+    fun getAliyunConsoleSecToken(context: Context): String? {
+        return getPrefs(context).getString(KEY_ALIYUN_CONSOLE_SEC_TOKEN, null)
+    }
 }
