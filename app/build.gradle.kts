@@ -93,8 +93,9 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    
+    implementation("com.github.microshow:RxFFmpeg:4.9.0")
 
-    implementation("com.github.microshow:RxFFmpeg:4.9.0-lite")
     // 图片加载库 Coil
     implementation("io.coil-kt:coil-compose:2.6.0")
     // 数据库 Room
