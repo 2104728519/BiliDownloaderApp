@@ -432,7 +432,7 @@ fun HomeScreen(
                             onClick = { viewModel.startDownload(audioOnly = true) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("仅下载音频 (MP3)")
+                            Text("仅下载音频")
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(

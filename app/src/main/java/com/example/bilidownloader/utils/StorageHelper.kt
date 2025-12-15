@@ -26,7 +26,7 @@ object StorageHelper {
         data class RequiresPermission(val intentSender: IntentSender) : StorageResult()
     }
 
-    // --- 以下部分保留不变 ---
+    // --- saveVideoToGallery 保持不变 ---
     suspend fun saveVideoToGallery(context: Context, sourceFile: File, fileName: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
@@ -63,29 +63,46 @@ object StorageHelper {
         }
     }
 
+    /**
+     * 【修改】保存音频文件 (支持 mp3, flac, m4a 等)
+     */
     suspend fun saveAudioToMusic(context: Context, sourceFile: File, fileName: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
+                // 根据文件名后缀判断 MIME 类型
+                val mimeType = when {
+                    // 👈 新增对 .flac 的支持
+                    fileName.endsWith(".flac", ignoreCase = true) -> "audio/flac"
+                    fileName.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"
+                    fileName.endsWith(".m4a", ignoreCase = true) -> "audio/mp4"
+                    else -> "audio/mpeg" // 默认值
+                }
+
                 val values = ContentValues().apply {
                     put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
-                    put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                    // 👈 使用根据后缀判断的 MIME 类型
+                    put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/BiliDownloader")
                         put(MediaStore.Audio.Media.IS_PENDING, 1)
                     }
                 }
+
                 val resolver = context.contentResolver
                 val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
                 } else {
                     MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
                 }
+
                 val itemUri = resolver.insert(collection, values) ?: return@withContext false
+
                 FileInputStream(sourceFile).use { inputStream ->
                     resolver.openOutputStream(itemUri)?.use { outputStream ->
                         inputStream.copyTo(outputStream)
                     }
                 }
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     values.clear()
                     values.put(MediaStore.Audio.Media.IS_PENDING, 0)
@@ -98,7 +115,7 @@ object StorageHelper {
             }
         }
     }
-
+    // --- copyUriToCache 保持不变 ---
     fun copyUriToCache(context: Context, uri: Uri, fileName: String): File? {
         return try {
             val cacheDir = context.cacheDir
@@ -115,11 +132,9 @@ object StorageHelper {
             null
         }
     }
-    // --- 以上部分保留不变 ---
-
+    // --- isFileExisting 保持不变 ---
     /**
      * 【新增】检查文件是否存在
-     * 用来在 Android 11+ 删除操作后确认结果
      */
     suspend fun isFileExisting(context: Context, uri: Uri): Boolean {
         return withContext(Dispatchers.IO) {
@@ -141,6 +156,7 @@ object StorageHelper {
         }
     }
 
+    // --- deleteAudioFile 保持不变 ---
     /**
      * 【修改后】删除音频文件
      */
@@ -183,9 +199,9 @@ object StorageHelper {
         }
     }
 
+    // --- renameAudioFile 保持不变 ---
     /**
      * 重命名音频文件
-     * (Rename 逻辑在 Android 11+ 依然需要 App 自己执行 update，所以不需要改动)
      */
     suspend fun renameAudioFile(context: Context, uri: Uri, newName: String): StorageResult {
         return withContext(Dispatchers.IO) {
