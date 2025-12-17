@@ -178,7 +178,7 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 3. 核心业务：下载 (已修复进度逻辑)
+    // 3. 核心业务：下载 (已修复进度与动态文本逻辑)
     // ========================================================================
 
     fun startDownload(audioOnly: Boolean) {
@@ -207,10 +207,12 @@ class MainViewModel(
             downloadVideoUseCase(params).collect { resource ->
                 when (resource) {
                     is Resource.Loading -> {
-                        // 【修复 1】从 resource 中获取真实进度
+                        // 【核心修复】同步更新进度和描述文字
+                        val message = resource.message ?: "处理中..."
                         val progressValue = if (resource.progress >= 0f) resource.progress else 0f
+
                         _state.value = MainState.Processing(
-                            info = resource.message ?: "处理中...",
+                            info = message,
                             progress = progressValue
                         )
                     }
@@ -226,7 +228,7 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 4. 辅助业务：为 AI 转写准备音频 (已修复进度与状态重置逻辑)
+    // 4. 辅助业务：为 AI 转写准备音频
     // ========================================================================
 
     fun prepareForTranscription(onReady: (String) -> Unit) {
@@ -236,19 +238,15 @@ class MainViewModel(
             prepareTranscribeUseCase(params).collect { resource ->
                 when (resource) {
                     is Resource.Loading -> {
-                        // 【修复 1】同步更新精确进度
+                        val message = resource.message ?: "准备中..."
                         val progressValue = if (resource.progress >= 0f) resource.progress else 0f
                         _state.value = MainState.Processing(
-                            info = resource.message ?: "准备中...",
+                            info = message,
                             progress = progressValue
                         )
                     }
                     is Resource.Success -> {
-                        // 执行跳转回调，传递准备好的音频文件路径
                         onReady(resource.data!!)
-
-                        // 【修复 2】关键：在回调后重置状态。
-                        // 这样当用户从转写页面按返回键回来时，主页是 Idle 状态。
                         reset()
                     }
                     is Resource.Error -> {
