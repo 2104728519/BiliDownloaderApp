@@ -5,9 +5,9 @@ import android.os.CountDownTimer
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bilidownloader.data.api.RetrofitClient
 import com.example.bilidownloader.data.model.GeetestInfo
-import com.example.bilidownloader.utils.CookieManager
+import com.example.bilidownloader.core.manager.CookieManager
+import com.example.bilidownloader.core.network.NetworkModule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,7 +51,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 Log.d(TAG, "正在预热 Cookie (获取 buvid)...")
                 // getNavInfo 会返回 buvid3 和 b_nut，RetrofitClient 会自动保存
-                RetrofitClient.service.getNavInfo().execute()
+                NetworkModule.biliService.getNavInfo().execute()
                 Log.d(TAG, "Cookie 预热完成")
             } catch (e: Exception) {
                 Log.w(TAG, "Cookie 预热失败，后续短信发送可能会受阻", e)
@@ -71,7 +71,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             Log.d(TAG, "Step 1: 开始获取验证码参数...")
 
             try {
-                val response = RetrofitClient.service.getCaptcha().execute()
+                val response = NetworkModule.biliService.getCaptcha().execute()
                 val body = response.body()
 
                 if (body?.code == 0 && body.data != null) {
@@ -82,7 +82,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     val currentCookie = CookieManager.getCookie(getApplication())
                     if (currentCookie?.contains("buvid") != true) {
                         Log.w(TAG, "警告：请求验证码时仍未发现 buvid，尝试紧急补救...")
-                        RetrofitClient.service.getNavInfo().execute() // 再次尝试获取
+                        NetworkModule.biliService.getNavInfo().execute() // 再次尝试获取
                     }
 
                     _loginState.value = LoginState.CaptchaRequired(body.data.geetest)
@@ -125,7 +125,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
             Log.d(TAG, "Step 2: 正在请求发送短信 API...")
             try {
-                val response = RetrofitClient.service.sendSmsCode(
+                val response = NetworkModule.biliService.sendSmsCode(
                     cid = 86,
                     tel = currentPhone,
                     token = currentCaptchaToken,
@@ -171,7 +171,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             _loginState.value = LoginState.Loading
             try {
-                val response = RetrofitClient.service.loginBySms(
+                val response = NetworkModule.biliService.loginBySms(
                     cid = 86,
                     tel = currentPhone,
                     code = smsCode.toInt(),

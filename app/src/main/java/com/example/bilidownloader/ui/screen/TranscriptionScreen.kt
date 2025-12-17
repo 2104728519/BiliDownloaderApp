@@ -22,7 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.bilidownloader.ui.viewmodel.TranscriptionViewModel
-import com.example.bilidownloader.utils.CookieManager
+import com.example.bilidownloader.core.manager.CookieManager
 import java.io.File
 import java.net.URLDecoder
 

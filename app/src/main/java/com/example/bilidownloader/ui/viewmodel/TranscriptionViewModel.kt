@@ -3,10 +3,10 @@ package com.example.bilidownloader.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bilidownloader.data.api.RetrofitClient
 import com.example.bilidownloader.data.model.TranscriptionInput
 import com.example.bilidownloader.data.model.TranscriptionRequest
-import com.example.bilidownloader.utils.CookieManager // 【新增】导入 CookieManager
+import com.example.bilidownloader.core.manager.CookieManager // 【新增】导入 CookieManager
+import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.utils.ConsoleScraper // 【新增】导入爬取工具
 import com.example.bilidownloader.utils.OssManager
 import kotlinx.coroutines.Dispatchers
@@ -99,7 +99,7 @@ class TranscriptionViewModel(application: Application) : AndroidViewModel(applic
                 // 3. 提交任务
                 _uiState.value = TransState.Processing("正在提交转写任务...")
                 val request = TranscriptionRequest(input = TranscriptionInput(listOf(fileUrl)))
-                val submitResp = RetrofitClient.aliyunService.submitTranscription(API_KEY, request = request)
+                val submitResp = NetworkModule.aliyunService.submitTranscription(API_KEY, request = request)
 
                 val taskId = submitResp.output?.task_id
                 if (taskId == null) throw Exception("提交失败: ${submitResp.message}")
@@ -111,13 +111,13 @@ class TranscriptionViewModel(application: Application) : AndroidViewModel(applic
                     _uiState.value = TransState.Processing("转写中... (${i * 3}s)")
                     delay(3000)
 
-                    val statusResp = RetrofitClient.aliyunService.getTaskStatus(API_KEY, taskId)
+                    val statusResp = NetworkModule.aliyunService.getTaskStatus(API_KEY, taskId)
                     val status = statusResp.output?.task_status
 
                     if (status == "SUCCEEDED") {
                         val resultUrl = statusResp.output.results?.get(0)?.transcription_url
                         if (resultUrl != null) {
-                            val transcriptData = RetrofitClient.aliyunService.downloadTranscript(resultUrl)
+                            val transcriptData = NetworkModule.aliyunService.downloadTranscript(resultUrl)
                             resultText = transcriptData.transcripts?.joinToString("\n") { it.text } ?: "无内容"
                         }
                         break

@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.net.Uri
 import android.util.Log
 import android.webkit.ConsoleMessage
-import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -21,10 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.bilidownloader.core.common.Constants
 import com.example.bilidownloader.data.model.GeetestInfo
-import com.example.bilidownloader.data.api.RetrofitClient // 【新增导入】
-import android.os.Handler
-import android.os.Looper
 
 // 1. 修改 GeetestWebView 函数签名，增加一个 cookie 参数
 @SuppressLint("SetJavaScriptEnabled")
@@ -56,7 +53,7 @@ fun GeetestWebView(
                         mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
                         // 【核心修改】第二步：强制 WebView 使用和 Retrofit 一模一样的 User-Agent
-                        userAgentString = RetrofitClient.COMMON_USER_AGENT
+                        userAgentString = Constants.COMMON_USER_AGENT
                         Log.d("GeetestWebView", "设置 UA: $userAgentString") // 打印日志确认
                     }
 

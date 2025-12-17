@@ -1,10 +1,10 @@
 package com.example.bilidownloader.ui.viewmodel
 
+import com.example.bilidownloader.core.network.NetworkModule
 import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bilidownloader.data.api.RetrofitClient
 import com.example.bilidownloader.data.database.AppDatabase
 import com.example.bilidownloader.data.database.HistoryEntity
 import com.example.bilidownloader.data.database.UserEntity
@@ -14,7 +14,7 @@ import com.example.bilidownloader.data.repository.HistoryRepository
 import com.example.bilidownloader.ui.state.FormatOption
 import com.example.bilidownloader.ui.state.MainState
 import com.example.bilidownloader.utils.BiliSigner
-import com.example.bilidownloader.utils.CookieManager
+import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.utils.FFmpegHelper
 import com.example.bilidownloader.utils.LinkUtils
 import com.example.bilidownloader.utils.StorageHelper
@@ -130,7 +130,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 CookieManager.saveSessData(getApplication(), rawCookie)
 
                 // 调用 API 获取用户信息
-                val response = RetrofitClient.service.getSelfInfo().execute()
+                val response = NetworkModule.biliService.getSelfInfo().execute()
                 val userData = response.body()?.data
 
                 if (userData != null && userData.isLogin) {
@@ -209,7 +209,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val currentSess = CookieManager.getSessDataValue(getApplication())
                     // 临时切环境注销
                     CookieManager.saveSessData(getApplication(), user.sessData)
-                    RetrofitClient.service.logout(user.biliJct).execute()
+                    NetworkModule.biliService.logout(user.biliJct).execute()
                     // 恢复环境
                     if (currentSess.isNotEmpty()) CookieManager.saveSessData(getApplication(), currentSess)
                 } catch (e: Exception) { e.printStackTrace() }
@@ -262,7 +262,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // --- 2. 获取基本信息 ---
-                val response = RetrofitClient.service.getVideoView(bvid).execute()
+                val response = NetworkModule.biliService.getVideoView(bvid).execute()
                 val detail = response.body()?.data ?: throw Exception("无法获取视频信息")
                 currentDetail = detail
                 currentBvid = detail.bvid
@@ -278,7 +278,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ))
 
                 // --- 3. WBI 签名 ---
-                val navResp = RetrofitClient.service.getNavInfo().execute()
+                val navResp = NetworkModule.biliService.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
                 val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
@@ -299,7 +299,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // --- 5. 获取流媒体信息 ---
-                val playResp = RetrofitClient.service.getPlayUrl(queryMap).execute()
+                val playResp = NetworkModule.biliService.getPlayUrl(queryMap).execute()
                 val playData = playResp.body()?.data ?: throw Exception("无法获取播放列表: ${playResp.errorBody()?.string()}")
 
                 val videoOpts = mutableListOf<FormatOption>()
@@ -423,7 +423,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             try {
                 // 1. 刷新 WBI Key
-                val navResp = RetrofitClient.service.getNavInfo().execute()
+                val navResp = NetworkModule.biliService.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
                 val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
@@ -443,7 +443,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     URLDecoder.decode(p[0], "UTF-8") to URLDecoder.decode(p[1], "UTF-8")
                 }
 
-                val playResp = RetrofitClient.service.getPlayUrl(queryMap).execute()
+                val playResp = NetworkModule.biliService.getPlayUrl(queryMap).execute()
                 val dash = playResp.body()?.data?.dash ?: throw Exception("无法获取流地址")
 
                 // 3. 匹配视频流 (Video)
@@ -600,7 +600,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = MainState.Processing("正在获取音频流...", 0f)
             try {
                 // 1. 获取密钥
-                val navResp = RetrofitClient.service.getNavInfo().execute()
+                val navResp = NetworkModule.biliService.getNavInfo().execute()
                 val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")
                 val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
                 val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
@@ -624,7 +624,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // 3. 获取地址
-                val playResp = RetrofitClient.service.getPlayUrl(queryMap).execute()
+                val playResp = NetworkModule.biliService.getPlayUrl(queryMap).execute()
                 val data = playResp.body()?.data
 
                 // 优先找普通音频流，如果没有则尝试找 Durl (兼容旧视频)

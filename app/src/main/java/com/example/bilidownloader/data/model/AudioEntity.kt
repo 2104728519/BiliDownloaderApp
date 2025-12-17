@@ -1,7 +1,7 @@
 package com.example.bilidownloader.data.model
 
 import android.net.Uri
-import com.example.bilidownloader.utils.DateUtils
+import com.example.bilidownloader.core.util.DateUtils
 
 /**
  * 音频档案卡

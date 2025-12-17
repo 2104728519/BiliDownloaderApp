@@ -1,12 +1,11 @@
-package com.example.bilidownloader // 请替换成您自己的包名
+package com.example.bilidownloader
 
 import android.app.Application
-import com.example.bilidownloader.data.api.RetrofitClient
-
+import com.example.bilidownloader.core.network.NetworkModule
 class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        // 初始化网络客户端
-        RetrofitClient.initialize(this)
+
+        NetworkModule.initialize(this)
     }
 }

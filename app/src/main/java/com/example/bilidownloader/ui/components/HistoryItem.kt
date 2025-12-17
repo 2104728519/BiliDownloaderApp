@@ -1,7 +1,6 @@
 package com.example.bilidownloader.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,7 +15,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.bilidownloader.data.database.HistoryEntity
-import com.example.bilidownloader.utils.DateUtils
+import com.example.bilidownloader.core.util.DateUtils
 
 @OptIn(ExperimentalFoundationApi::class) // 使用长按功能需要这个注解
 @Composable
