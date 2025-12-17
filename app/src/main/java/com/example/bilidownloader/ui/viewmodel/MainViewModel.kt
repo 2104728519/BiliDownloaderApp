@@ -58,7 +58,6 @@ class MainViewModel(
     private val _isUserLoggedIn = MutableStateFlow(false)
     val isUserLoggedIn = _isUserLoggedIn.asStateFlow()
 
-    // 缓存当前选中的视频上下文
     private var currentBvid: String = ""
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
@@ -178,7 +177,7 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 3. 核心业务：下载 (已修复进度与动态文本逻辑)
+    // 3. 核心业务：下载
     // ========================================================================
 
     fun startDownload(audioOnly: Boolean) {
@@ -207,13 +206,12 @@ class MainViewModel(
             downloadVideoUseCase(params).collect { resource ->
                 when (resource) {
                     is Resource.Loading -> {
-                        // 【核心修复】同步更新进度和描述文字
-                        val message = resource.message ?: "处理中..."
-                        val progressValue = if (resource.progress >= 0f) resource.progress else 0f
+                        val msg = resource.message ?: resource.data
+                        val progressValue = resource.progress
 
                         _state.value = MainState.Processing(
-                            info = message,
-                            progress = progressValue
+                            info = msg ?: "处理中...",
+                            progress = if (progressValue >= 0f) progressValue else 0f
                         )
                     }
                     is Resource.Success -> {
@@ -228,7 +226,7 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 4. 辅助业务：为 AI 转写准备音频
+    // 4. 辅助业务：转写准备
     // ========================================================================
 
     fun prepareForTranscription(onReady: (String) -> Unit) {
@@ -238,11 +236,12 @@ class MainViewModel(
             prepareTranscribeUseCase(params).collect { resource ->
                 when (resource) {
                     is Resource.Loading -> {
-                        val message = resource.message ?: "准备中..."
-                        val progressValue = if (resource.progress >= 0f) resource.progress else 0f
+                        val msg = resource.message ?: resource.data
+                        val progressValue = resource.progress
+
                         _state.value = MainState.Processing(
-                            info = message,
-                            progress = progressValue
+                            info = msg ?: "准备中...",
+                            progress = if (progressValue >= 0f) progressValue else 0f
                         )
                     }
                     is Resource.Success -> {
