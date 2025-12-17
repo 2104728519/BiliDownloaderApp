@@ -5,7 +5,10 @@ package com.example.bilidownloader.core.common
  * 用于在 Repository 和 ViewModel 之间传递数据状态
  * @param T 数据载荷的类型
  */
-sealed class Resource<T>(val data: T? = null, val message: String? = null) {
+sealed class Resource<T>(
+    val data: T? = null,
+    val message: String? = null
+) {
 
     /**
      * 成功状态
@@ -22,7 +25,11 @@ sealed class Resource<T>(val data: T? = null, val message: String? = null) {
 
     /**
      * 加载中状态
-     * @param data (可选) 预加载数据
+     * @param progress 进度值 (0.0f ~ 1.0f)，-1f 代表不确定进度
+     * @param data (可选) 附加信息，比如 "正在下载视频..."
      */
-    class Loading<T>(data: T? = null) : Resource<T>(data)
+    class Loading<T>(
+        val progress: Float = -1f,
+        data: T? = null
+    ) : Resource<T>(data)
 }

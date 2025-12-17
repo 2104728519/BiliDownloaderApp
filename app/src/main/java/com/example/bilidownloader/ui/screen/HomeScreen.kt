@@ -31,7 +31,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.bilidownloader.data.database.HistoryEntity
 import com.example.bilidownloader.data.database.UserEntity
-import com.example.bilidownloader.di.AppViewModelProvider // 【关键导入】
+import com.example.bilidownloader.di.AppViewModelProvider
 import com.example.bilidownloader.ui.components.BiliWebPlayer
 import com.example.bilidownloader.ui.components.HistoryItem
 import com.example.bilidownloader.ui.state.FormatOption
@@ -41,7 +41,6 @@ import com.example.bilidownloader.ui.viewmodel.MainViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    // 【核心修改】：使用自定义 Factory 注入依赖
     viewModel: MainViewModel = viewModel(factory = AppViewModelProvider.Factory),
     onNavigateToTranscribe: (String) -> Unit,
     onNavigateToLogin: () -> Unit
@@ -67,7 +66,7 @@ fun HomeScreen(
         selectedItems.clear()
     }
 
-    // 生命周期监听：处理从短信登录返回后的同步
+    // 生命周期监听
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -229,29 +228,48 @@ fun HomeScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp, vertical = 16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 主内容区域（根据 State 切换展示内容）
             when (val currentState = state) {
                 is MainState.Idle -> {
-                    // 首页：输入框 + 历史记录
+                    // 输入框与解析按钮
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { inputText = it },
-                        label = { Text("粘贴视频链接") },
-                        modifier = Modifier.fillMaxWidth()
+                        label = { Text("粘贴 B 站链接或文字") },
+                        placeholder = { Text("支持短链接、BV号，可包含其他文字") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        maxLines = 6,
+                        trailingIcon = {
+                            if (inputText.isNotEmpty()) {
+                                IconButton(onClick = { inputText = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "清空", tint = MaterialTheme.colorScheme.outline)
+                                }
+                            }
+                        },
+                        shape = MaterialTheme.shapes.medium
                     )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     Button(
                         onClick = { viewModel.analyzeInput(inputText) },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                        enabled = inputText.isNotBlank()
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        enabled = inputText.isNotBlank(),
+                        shape = MaterialTheme.shapes.medium
                     ) {
-                        Text("解析视频")
+                        Text("开始解析", style = MaterialTheme.typography.titleMedium)
                     }
 
-                    if (historyList.isNotEmpty() && !isSelectionMode) {
-                        Text("历史记录", style = MaterialTheme.typography.titleSmall, modifier = Modifier.align(Alignment.Start))
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    if (historyList.isNotEmpty()) {
+                        Text("历史记录", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.Start))
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 
@@ -289,7 +307,6 @@ fun HomeScreen(
                 }
 
                 is MainState.ChoiceSelect -> {
-                    // 解析成功后的选择下载界面
                     Column(
                         modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -320,10 +337,28 @@ fun HomeScreen(
                 }
 
                 is MainState.Processing -> {
-                    Column(modifier = Modifier.padding(top = 100.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(currentState.info)
-                        LinearProgressIndicator(progress = { currentState.progress }, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp))
-                        Text("${(currentState.progress * 100).toInt()}%")
+                    Column(
+                        modifier = Modifier.padding(top = 100.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(currentState.info, style = MaterialTheme.typography.bodyLarge)
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // 【核心修复】直接使用精确进度
+                        LinearProgressIndicator(
+                            progress = { currentState.progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // 显示百分比
+                        Text(
+                            text = "${(currentState.progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
 
@@ -345,6 +380,7 @@ fun HomeScreen(
     }
 }
 
+// ... 后续 AccountItem 和 QualitySelector 代码保持不变 ...
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AccountItem(
@@ -364,7 +400,10 @@ fun AccountItem(
         AsyncImage(
             model = user.face,
             contentDescription = null,
-            modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -393,7 +432,9 @@ fun QualitySelector(
             readOnly = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor()
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor()
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
