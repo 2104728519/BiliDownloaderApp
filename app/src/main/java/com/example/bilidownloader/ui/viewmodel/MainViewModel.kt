@@ -1,9 +1,15 @@
 package com.example.bilidownloader.ui.viewmodel
 
 import android.app.Application
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.network.NetworkModule
@@ -15,8 +21,10 @@ import com.example.bilidownloader.data.repository.UserRepository
 import com.example.bilidownloader.domain.AnalyzeVideoUseCase
 import com.example.bilidownloader.domain.DownloadVideoUseCase
 import com.example.bilidownloader.domain.PrepareTranscribeUseCase
+import com.example.bilidownloader.service.DownloadService
 import com.example.bilidownloader.ui.state.FormatOption
 import com.example.bilidownloader.ui.state.MainState
+import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -58,12 +66,51 @@ class MainViewModel(
     private val _isUserLoggedIn = MutableStateFlow(false)
     val isUserLoggedIn = _isUserLoggedIn.asStateFlow()
 
+    // 必要的临时变量
     private var currentBvid: String = ""
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
 
+    // 广播接收器，用于监听 Service 的反馈
+    private val downloadReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            intent?.let {
+                val status = it.getStringExtra(DownloadService.BROADCAST_STATUS)
+                val msg = it.getStringExtra(DownloadService.BROADCAST_MESSAGE)
+                val progress = it.getFloatExtra(DownloadService.BROADCAST_PROGRESS, 0f)
+
+                when (status) {
+                    "loading" -> {
+                        _state.value = MainState.Processing(
+                            info = msg ?: "后台下载中...",
+                            progress = progress
+                        )
+                    }
+                    "success" -> {
+                        _state.value = MainState.Success(msg ?: "下载完成")
+                    }
+                    "error" -> {
+                        _state.value = MainState.Error(msg ?: "下载失败")
+                    }
+                }
+            }
+        }
+    }
+
     init {
+        // 1. 注册进度监听广播
+        LocalBroadcastManager.getInstance(application).registerReceiver(
+            downloadReceiver,
+            IntentFilter(DownloadService.ACTION_PROGRESS_UPDATE)
+        )
+        // 2. 恢复登录 Session
         restoreSession()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // 必须注销广播，防止 Context 泄露
+        LocalBroadcastManager.getInstance(getApplication()).unregisterReceiver(downloadReceiver)
     }
 
     // ========================================================================
@@ -177,7 +224,7 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 3. 核心业务：下载
+    // 3. 核心业务：下载 (重构为启动 Service)
     // ========================================================================
 
     fun startDownload(audioOnly: Boolean) {
@@ -185,6 +232,7 @@ class MainViewModel(
         val vOpt = currentState.selectedVideo
         val aOpt = currentState.selectedAudio
 
+        // 校验选择
         if (!audioOnly && vOpt == null) {
             _state.value = MainState.Error("请选择画质")
             return
@@ -194,39 +242,33 @@ class MainViewModel(
             return
         }
 
-        viewModelScope.launch {
-            val params = DownloadVideoUseCase.Params(
-                bvid = currentBvid,
-                cid = currentCid,
-                videoOption = vOpt,
-                audioOption = aOpt,
-                audioOnly = audioOnly
-            )
+        val context = getApplication<Application>()
+        val intent = Intent(context, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_START_DOWNLOAD
+            putExtra(DownloadService.EXTRA_BVID, currentBvid)
+            putExtra(DownloadService.EXTRA_CID, currentCid)
+            putExtra(DownloadService.EXTRA_AUDIO_ONLY, audioOnly)
 
-            downloadVideoUseCase(params).collect { resource ->
-                when (resource) {
-                    is Resource.Loading -> {
-                        val msg = resource.message ?: resource.data
-                        val progressValue = resource.progress
-
-                        _state.value = MainState.Processing(
-                            info = msg ?: "处理中...",
-                            progress = if (progressValue >= 0f) progressValue else 0f
-                        )
-                    }
-                    is Resource.Success -> {
-                        _state.value = MainState.Success(resource.data ?: "任务完成")
-                    }
-                    is Resource.Error -> {
-                        _state.value = MainState.Error(resource.message ?: "下载失败")
-                    }
-                }
+            val gson = Gson()
+            putExtra(DownloadService.EXTRA_AUDIO_OPT, gson.toJson(aOpt))
+            if (vOpt != null) {
+                putExtra(DownloadService.EXTRA_VIDEO_OPT, gson.toJson(vOpt))
             }
         }
+
+        // 启动前台服务
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
+
+        // 立即更新 UI 状态，提示用户后台已接管
+        _state.value = MainState.Processing("正在启动后台服务...", 0f)
     }
 
     // ========================================================================
-    // 4. 辅助业务：转写准备
+    // 4. 辅助业务：转写准备 (保持原样，此操作较轻量)
     // ========================================================================
 
     fun prepareForTranscription(onReady: (String) -> Unit) {

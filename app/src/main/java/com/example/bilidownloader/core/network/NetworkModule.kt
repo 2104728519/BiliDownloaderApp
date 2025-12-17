@@ -47,10 +47,10 @@ object NetworkModule {
     private val biliOkHttpClient: OkHttpClient by lazy {
         val ctx = getContext()
         OkHttpClient.Builder()
-            .addInterceptor(BiliHeaderInterceptor())      // 添加通用头
-            .addInterceptor(AuthInterceptor(ctx))         // 注入 Cookie
-            .addInterceptor(ReceivedCookieInterceptor(ctx)) // 保存 Cookie
-            .addInterceptor(loggingInterceptor)           // 日志
+            .addInterceptor(BiliHeaderInterceptor())        // 添加通用头
+            .addInterceptor(AuthInterceptor(ctx))           // 注入 Cookie
+            .addInterceptor(ReceivedCookieInterceptor(ctx))   // 保存 Cookie
+            .addInterceptor(loggingInterceptor)             // 日志
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()
@@ -62,6 +62,19 @@ object NetworkModule {
             .addInterceptor(loggingInterceptor)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * 【新增】下载专用 Client
+     * 1. 不添加日志拦截器，避免大文件二进制流刷屏导致内存溢出 (OOM)
+     * 2. 设置极长的读取超时，防止大文件下载过程中由于网络波动中断
+     */
+    val downloadClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(60, TimeUnit.SECONDS) // 连接超时 1分钟
+            .readTimeout(120, TimeUnit.SECONDS)   // 读取超时 2分钟 (之后由业务层重试机制处理)
+            .retryOnConnectionFailure(true)       // 允许失败重连
             .build()
     }
 
@@ -91,7 +104,7 @@ object NetworkModule {
     private val consoleRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(Constants.ALIYUN_CONSOLE_BASE_URL)
-            .client(commonOkHttpClient) // 控制台的 Cookie 是通过参数手动传的，不需要 AuthInterceptor
+            .client(commonOkHttpClient) // 控制台的 Cookie 是通过参数手动传的
             .addConverterFactory(GsonConverterFactory.create())
             .build()
     }

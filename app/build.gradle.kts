@@ -117,4 +117,6 @@ dependencies {
 
     // 2. 协程测试库 (单元测试中 runBlocking 需要用到它)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    //过时的库
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 }
