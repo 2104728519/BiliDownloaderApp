@@ -1,20 +1,20 @@
 package com.example.bilidownloader.ui.viewmodel
 
-import com.example.bilidownloader.core.network.NetworkModule
 import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bilidownloader.data.database.AppDatabase
+import com.example.bilidownloader.core.manager.CookieManager
+import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.database.HistoryEntity
 import com.example.bilidownloader.data.database.UserEntity
 import com.example.bilidownloader.data.model.VideoDetail
 import com.example.bilidownloader.data.repository.DownloadRepository
 import com.example.bilidownloader.data.repository.HistoryRepository
+import com.example.bilidownloader.data.repository.UserRepository
 import com.example.bilidownloader.ui.state.FormatOption
 import com.example.bilidownloader.ui.state.MainState
 import com.example.bilidownloader.utils.BiliSigner
-import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.utils.FFmpegHelper
 import com.example.bilidownloader.utils.LinkUtils
 import com.example.bilidownloader.utils.StorageHelper
@@ -32,7 +32,24 @@ import java.net.URLDecoder
 import java.util.TreeMap
 import java.util.regex.Pattern
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+/**
+ * 主页面的 ViewModel
+ *
+ * 职责：
+ * 1. 管理 UI 状态 (MainState)
+ * 2. 处理视频解析、下载、转写等业务逻辑
+ * 3. 协调账号管理和 Cookie 同步
+ *
+ * 重构说明 (Phase 3)：
+ * - 不再直接持有 Database 或 Dao，而是通过构造函数注入 Repository。
+ * - 实现了与数据层的解耦。
+ */
+class MainViewModel(
+    application: Application,
+    private val historyRepository: HistoryRepository,
+    private val userRepository: UserRepository,      // 【新增】注入 UserRepository
+    private val downloadRepository: DownloadRepository // 【新增】注入 DownloadRepository
+) : AndroidViewModel(application) {
 
     // ========================================================================
     // 状态流定义
@@ -40,24 +57,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<MainState>(MainState.Idle)
     val state = _state.asStateFlow()
 
-    // 数据库与仓库
-    private val database = AppDatabase.getDatabase(application)
-    private val historyRepository = HistoryRepository(database.historyDao())
-    private val userDao = database.userDao()
-    private val repository = DownloadRepository()
+    // 【移除】不再需要在内部创建 Database 和 Dao
+    // private val database = AppDatabase.getDatabase(application)
+    // private val repository = DownloadRepository()
 
     // 用于解析短链接的客户端
     private val redirectClient = OkHttpClient.Builder().followRedirects(true).build()
 
-    // 历史记录流 (UI直接订阅)
+    // 历史记录流 (直接从注入的 Repository 获取)
     val historyList = historyRepository.allHistory.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
 
-    // 用户账号列表流 (UI直接订阅)
-    val userList = userDao.getAllUsers().stateIn(
+    // 用户账号列表流 (从 UserRepository 获取)
+    val userList = userRepository.allUsers.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
@@ -81,7 +96,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ========================================================================
-    // 1. 账号管理逻辑 (整合数据库)
+    // 1. 账号管理逻辑
     // ========================================================================
 
     /**
@@ -89,7 +104,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun restoreSession() {
         viewModelScope.launch(Dispatchers.IO) {
-            val activeUser = userDao.getCurrentUser()
+            // 【修改】使用 userRepository
+            val activeUser = userRepository.getCurrentUser()
             if (activeUser != null) {
                 // 将数据库的 Cookie 同步到 Retrofit/WebView
                 CookieManager.saveSessData(getApplication(), activeUser.sessData)
@@ -145,9 +161,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isLogin = true
                     )
 
-                    // 事务性更新：清除旧活跃 -> 插入新活跃
-                    userDao.clearAllLoginStatus()
-                    userDao.insertUser(newUser)
+                    // 【修改】使用 userRepository
+                    userRepository.clearAllLoginStatus()
+                    userRepository.insertUser(newUser)
 
                     _currentUser.value = newUser
                     _isUserLoggedIn.value = true
@@ -173,8 +189,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun switchAccount(user: UserEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            userDao.clearAllLoginStatus()
-            userDao.setLoginStatus(user.mid)
+            // 【修改】使用 userRepository
+            userRepository.clearAllLoginStatus()
+            userRepository.setLoginStatus(user.mid)
 
             CookieManager.saveSessData(getApplication(), user.sessData)
             _currentUser.value = user
@@ -191,7 +208,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun quitToGuestMode() {
         viewModelScope.launch(Dispatchers.IO) {
-            userDao.clearAllLoginStatus()
+            // 【修改】使用 userRepository
+            userRepository.clearAllLoginStatus()
             CookieManager.clearCookies(getApplication())
             _currentUser.value = null
             _isUserLoggedIn.value = false
@@ -215,7 +233,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } catch (e: Exception) { e.printStackTrace() }
             }
 
-            userDao.deleteUser(user)
+            // 【修改】使用 userRepository
+            userRepository.deleteUser(user)
             if (currentUser.value?.mid == user.mid) {
                 quitToGuestMode()
             }
@@ -268,7 +287,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 currentBvid = detail.bvid
                 currentCid = detail.pages[0].cid
 
-                // 写入历史
+                // 写入历史 (使用注入的 Repository)
                 historyRepository.insert(HistoryEntity(
                     bvid = detail.bvid,
                     title = detail.title,
@@ -314,7 +333,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     // --- 解析视频流 (过滤 AV1) ---
                     playData.dash.video.forEach { media ->
-                        // 【核心修改】跳过 AV1 编码 (codecs 以 av01 开头)
+                        // 跳过 AV1 编码
                         if (media.codecs?.startsWith("av01") == true) return@forEach
 
                         val qIndex = playData.accept_quality?.indexOf(media.id) ?: -1
@@ -361,7 +380,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             id = media.id,
                             label = "杜比全景声 (Dolby) - 约 ${formatSize(estimatedSize)}",
                             description = "杜比全景声",
-                            codecs = media.codecs, // e.g. ec-3
+                            codecs = media.codecs,
                             bandwidth = media.bandwidth,
                             estimatedSize = estimatedSize
                         ))
@@ -375,7 +394,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             id = flacMedia.id,
                             label = "无损 Hi-Res (FLAC) - 约 ${formatSize(estimatedSize)}",
                             description = "无损 Hi-Res",
-                            codecs = "flac", // 标记为 flac
+                            codecs = "flac",
                             bandwidth = flacMedia.bandwidth,
                             estimatedSize = estimatedSize
                         ))
@@ -457,7 +476,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 var foundAudioUrl: String? = null
                 var isFlac = false
 
-                // A. 检查是否为 FLAC
                 if (aOpt.codecs == "flac") {
                     val flacMedia = dash.flac?.audio
                     if (flacMedia != null && flacMedia.id == aOpt.id) {
@@ -465,15 +483,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isFlac = true
                     }
                 }
-                // B. 检查是否为 Dolby
                 if (foundAudioUrl == null) {
                     foundAudioUrl = dash.dolby?.audio?.find { it.id == aOpt.id }?.baseUrl
                 }
-                // C. 检查常规音频
                 if (foundAudioUrl == null) {
                     foundAudioUrl = dash.audio?.find { it.id == aOpt.id }?.baseUrl
                 }
-                // D. 兜底
                 if (foundAudioUrl == null) {
                     foundAudioUrl = dash.audio?.firstOrNull()?.baseUrl
                         ?: throw Exception("未找到音频流")
@@ -488,7 +503,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val outAudio = File(cacheDir, "${currentBvid}_${System.currentTimeMillis()}$suffix")
 
                     _state.value = MainState.Processing("下载音频中...", 0.0f)
-                    repository.downloadFile(foundAudioUrl, audioFile).collect { p ->
+                    // 【修改】使用 downloadRepository
+                    downloadRepository.downloadFile(foundAudioUrl, audioFile).collect { p ->
                         _state.value = MainState.Processing("下载音频中...", p * 0.8f)
                     }
 
@@ -510,17 +526,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val outMp4 = File(cacheDir, "${currentBvid}_${System.currentTimeMillis()}.mp4")
 
                     _state.value = MainState.Processing("下载视频流...", 0f)
-                    repository.downloadFile(videoUrl!!, videoFile).collect { p ->
+                    // 【修改】使用 downloadRepository
+                    downloadRepository.downloadFile(videoUrl!!, videoFile).collect { p ->
                         _state.value = MainState.Processing("下载视频流...", p * 0.45f)
                     }
 
                     _state.value = MainState.Processing("下载音频流...", 0.45f)
-                    repository.downloadFile(foundAudioUrl, audioFile).collect { p ->
+                    downloadRepository.downloadFile(foundAudioUrl, audioFile).collect { p ->
                         _state.value = MainState.Processing("下载音频流...", 0.45f + p * 0.45f)
                     }
 
                     _state.value = MainState.Processing("合并中...", 0.9f)
-                    // 合并时 FFmpegHelper 会自动处理音频格式
                     val success = FFmpegHelper.mergeVideoAudio(videoFile, audioFile, outMp4)
 
                     if (!success) throw Exception("合并失败")
@@ -606,7 +622,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
                 val mixinKey = BiliSigner.getMixinKey(imgKey, subKey)
 
-                // 2. 签名参数 (转写不需要太高画质，普通音质即可，但为了兼容性还是走标准流程)
+                // 2. 签名参数
                 val params = TreeMap<String, Any>().apply {
                     put("bvid", currentBvid)
                     put("cid", currentCid)
@@ -634,18 +650,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // 4. 下载到临时文件
                 val cacheDir = getApplication<Application>().cacheDir
-                // 使用 m4a 后缀，方便后续处理
                 val tempFile = File(cacheDir, "trans_temp_${System.currentTimeMillis()}.m4a")
 
                 _state.value = MainState.Processing("正在提取音频...", 0.2f)
 
-                repository.downloadFile(audioUrl, tempFile).collect { p ->
+                // 【修改】使用 downloadRepository
+                downloadRepository.downloadFile(audioUrl, tempFile).collect { p ->
                     _state.value = MainState.Processing("正在提取音频...", p)
                 }
 
                 // 5. 下载完成，恢复 UI 状态并回调
                 withContext(Dispatchers.Main) {
-                    // 恢复到选择界面，以免界面一直卡在进度条
                     currentDetail?.let {
                         val videoOpts = (state.value as? MainState.ChoiceSelect)?.videoFormats ?: emptyList()
                         val audioOpts = (state.value as? MainState.ChoiceSelect)?.audioFormats ?: emptyList()
@@ -657,7 +672,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             selectedAudio = audioOpts.firstOrNull()
                         )
                     }
-                    // 执行跳转回调，传入文件路径
                     onReady(tempFile.absolutePath)
                 }
 
