@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui
+package com.example.bilidownloader.ui.screen
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.padding

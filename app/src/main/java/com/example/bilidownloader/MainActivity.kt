@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import com.example.bilidownloader.ui.MainScreen
+import com.example.bilidownloader.ui.screen.MainScreen
 import com.example.bilidownloader.ui.theme.BiliDownloaderTheme // 确保导入了这个
 
 class MainActivity : ComponentActivity() {
