@@ -33,24 +33,36 @@ class DownloadVideoUseCase(
         try {
             val cacheDir = context.cacheDir
 
-            // 1. 获取签名与 API 请求 (保持不变)
+            // 1. 获取签名
             val qn = params.videoOption?.id ?: params.audioOption.id
             val queryMap = getSignedParams(params.bvid, params.cid, qn)
+
+            // 2. 获取 API 数据
             val playResp = NetworkModule.biliService.getPlayUrl(queryMap).execute()
             val dash = playResp.body()?.data?.dash ?: throw Exception("无法获取流地址 (Dash为空)")
 
-            // 【核心修改 1】使用固定的临时文件名 (BVID + CID + 类型)
-            // 这样暂停后再回来，文件名一样，Repository 才能发现并续传
-            val audioTempName = "${params.bvid}_${params.cid}_audio.tmp"
-            val videoTempName = "${params.bvid}_${params.cid}_video.tmp"
+            // ================================================================
+            // 【关键修改】文件名必须包含 ID 和 Codec，确保唯一性
+            // ================================================================
 
+            // 音频临时文件: BV_CID_30280_mp4a_audio.tmp
+            val audioSuffix = "${params.audioOption.id}_${params.audioOption.codecs}"
+            val audioTempName = "${params.bvid}_${params.cid}_${audioSuffix}_audio.tmp"
             val audioFile = File(cacheDir, audioTempName)
+
+            // 视频临时文件 (仅当不是纯音频模式时生成)
+            val videoTempName = if (!params.audioOnly && params.videoOption != null) {
+                val vOpt = params.videoOption
+                // 例如: BV_CID_80_avc_video.tmp
+                "${params.bvid}_${params.cid}_${vOpt.id}_${vOpt.codecs}_video.tmp"
+            } else {
+                ""
+            }
 
             // ================================================================
             // 分支 A: 仅下载音频
             // ================================================================
             if (params.audioOnly) {
-                // ... 匹配 URL 逻辑保持不变 ...
                 val foundAudioUrl: String = if (params.audioOption.codecs == "flac") {
                     dash.flac?.audio?.baseUrl
                 } else {
@@ -62,14 +74,12 @@ class DownloadVideoUseCase(
                 val suffix = if (params.audioOption.codecs == "flac") ".flac" else ".mp3"
                 val outAudio = File(cacheDir, "${params.bvid}_out$suffix")
 
-                // 下载音频
                 emit(Resource.Loading(progress = 0f, data = "正在下载音频..."))
                 downloadRepository.downloadFile(foundAudioUrl, audioFile).collect { progress ->
                     emit(Resource.Loading(progress = progress * 0.8f, data = "正在下载音频..."))
                 }
 
-                // 处理与保存 (FFmpeg)
-                emit(Resource.Loading(progress = 0.8f, data = "正在处理音频..."))
+                emit(Resource.Loading(progress = 0.8f, data = "正在转码..."))
                 val success = if (params.audioOption.codecs == "flac") {
                     FFmpegHelper.remuxToFlac(audioFile, outAudio)
                 } else {
@@ -79,11 +89,9 @@ class DownloadVideoUseCase(
 
                 StorageHelper.saveAudioToMusic(context, outAudio, "Bili_${params.bvid}$suffix")
 
-                // 清理临时文件
                 outAudio.delete()
-                if (audioFile.exists()) audioFile.delete()
-
-                emit(Resource.Success("音频已保存到音乐库"))
+                if (audioFile.exists()) audioFile.delete() // 下载完删除临时文件
+                emit(Resource.Success("音频已保存"))
             }
             // ================================================================
             // 分支 B: 视频 + 音频
@@ -91,7 +99,6 @@ class DownloadVideoUseCase(
             else {
                 val vOpt = params.videoOption!!
 
-                // ... 匹配 URL 逻辑保持不变 ...
                 val videoUrl: String = dash.video.find { it.id == vOpt.id && it.codecs == vOpt.codecs }?.baseUrl
                     ?: dash.video.firstOrNull()?.baseUrl
                     ?: throw Exception("视频流丢失")
@@ -100,32 +107,28 @@ class DownloadVideoUseCase(
                     ?: dash.audio?.firstOrNull()?.baseUrl
                     ?: throw Exception("音频流丢失")
 
-                // 【核心修改 2】使用上面定义的固定 Video 文件名
                 val videoFile = File(cacheDir, videoTempName)
-                val outMp4 = File(cacheDir, "${params.bvid}_final.mp4")
+                val outMp4 = File(cacheDir, "${params.bvid}_${System.currentTimeMillis()}.mp4") // 最终文件名可以用时间戳避免冲突
 
-                // 1. 下载视频 (0% -> 45%)
-                // 注意：这里 flow 可能会立即从 0.5 (50%) 开始，如果文件已经下载了一半
+                // 下载视频
                 downloadRepository.downloadFile(videoUrl, videoFile).collect { p ->
                     emit(Resource.Loading(progress = p * 0.45f, data = "正在下载视频流..."))
                 }
 
-                // 2. 下载音频 (45% -> 90%)
+                // 下载音频
                 downloadRepository.downloadFile(foundAudioUrl, audioFile).collect { p ->
                     emit(Resource.Loading(progress = 0.45f + p * 0.45f, data = "正在下载音频流..."))
                 }
 
-                // 3. 合并
+                // 合并
                 emit(Resource.Loading(progress = 0.9f, data = "正在合并音视频..."))
                 val success = FFmpegHelper.mergeVideoAudio(videoFile, audioFile, outMp4)
-                if (!success) throw Exception("FFmpeg 合并失败")
+                if (!success) throw Exception("合并失败")
 
-                // 4. 保存
-                emit(Resource.Loading(progress = 0.98f, data = "正在保存到相册..."))
+                emit(Resource.Loading(progress = 0.98f, data = "正在保存..."))
                 StorageHelper.saveVideoToGallery(context, outMp4, "Bili_${params.bvid}.mp4")
 
-                // 清理：只有成功合并后才删除临时文件
-                // 这样如果中途失败或暂停，临时文件还在，下次能续传
+                // 成功后才删除临时文件
                 videoFile.delete()
                 audioFile.delete()
                 outMp4.delete()
@@ -135,12 +138,10 @@ class DownloadVideoUseCase(
 
         } catch (e: Exception) {
             e.printStackTrace()
-            // 抛出异常前，不要删除临时文件，以便下次重试
             throw e
         }
     }.flowOn(Dispatchers.IO)
 
-    // ... getSignedParams 保持不变 ...
     private fun getSignedParams(bvid: String, cid: Long, quality: Int): Map<String, String> {
         val navResp = NetworkModule.biliService.getNavInfo().execute()
         val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")

@@ -26,8 +26,6 @@ class DownloadService : Service() {
     private lateinit var wakeLock: PowerManager.WakeLock
 
     private var downloadJob: Job? = null
-
-    // 【核心修复】用于限制通知栏更新频率的时间戳
     private var lastNotifyTime = 0L
 
     companion object {
@@ -106,33 +104,49 @@ class DownloadService : Service() {
                             val p = (resource.progress * 100).toInt()
                             val msg = resource.data ?: "下载中..."
 
-                            // 【核心修复】加强版限流逻辑
                             val currentTime = System.currentTimeMillis()
-                            // 1. 间隔超过 1000ms
-                            // 2. 或者处于进度极小（刚开始）的节点
                             if (currentTime - lastNotifyTime > 1000 || resource.progress <= 0.01f) {
                                 updateNotification(msg, p, false)
                                 lastNotifyTime = currentTime
                             }
 
-                            // 广播不受限制，保证 App 内进度条丝滑
                             sendBroadcast(Resource.Loading(resource.progress, msg))
                         }
                         is Resource.Success -> {
+                            // 1. 先更新状态为完成
                             updateNotification("下载完成", 100, false)
                             sendBroadcast(Resource.Success(resource.data!!))
-                            stopForeground(STOP_FOREGROUND_DETACH)
-                            stopSelf()
+
+                            // 【核心修改】不立即自杀，而是启动一个延时任务
+                            launch {
+                                // (A) 退出前台服务状态，但保留通知 (STOP_FOREGROUND_DETACH)
+                                // 这样服务不再是“前台”服务，但通知还在
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                    stopForeground(STOP_FOREGROUND_DETACH)
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    stopForeground(false)
+                                }
+
+                                // (B) 延迟 5 秒
+                                delay(5000)
+
+                                // (C) 5秒后，移除通知并停止服务
+                                notificationManager.cancel(NOTIFICATION_ID)
+                                stopSelf()
+                            }
                         }
                         is Resource.Error -> {
                             updateNotification("出错: ${resource.message}", 0, false)
                             sendBroadcast(Resource.Error(resource.message ?: "Error"))
-                            stopSelf()
+                            // 出错时不自动消失，让用户看到，或者你可以也加个 delay
+                            stopForeground(true) // 出错可以直接移除前台状态
+                            // stopSelf() // 可以选择不立即停止，等待用户操作
                         }
                     }
                 }
             } catch (e: CancellationException) {
-                // 协程取消触发（暂停/取消操作）
+                // 协程取消触发
             }
         }
     }
@@ -169,8 +183,8 @@ class DownloadService : Service() {
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setProgress(100, progress, indeterminate)
             .setOngoing(true)
-            .setOnlyAlertOnce(true) // 避免每次更新都响铃
-            .setPriority(NotificationCompat.PRIORITY_LOW) // 进一步降低干扰
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 

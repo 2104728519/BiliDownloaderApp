@@ -1,10 +1,15 @@
 package com.example.bilidownloader.ui.screen
 
+import android.Manifest // 【新增 import】
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager // 【新增 import】
+import android.os.Build // 【新增 import】
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult // 【新增 import】
+import androidx.activity.result.contract.ActivityResultContracts // 【新增 import】
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -25,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat // 【新增 import】
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -47,6 +53,31 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // ============================================================
+    // 【新增】Android 13+ 动态请求通知权限
+    // ============================================================
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            if (isGranted) {
+                // 用户同意了，不用做啥，下次发通知就能看到了
+            } else {
+                // 用户拒绝了，可以弹个 Toast 提示（可选）
+                // Toast.makeText(context, "未开启通知权限，无法显示下载进度", Toast.LENGTH_SHORT).show()
+            }
+        }
+    )
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13+
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+    // ============================================================
+
 
     // 状态监听
     val currentUser by viewModel.currentUser.collectAsState()
@@ -92,7 +123,9 @@ fun HomeScreen(
     if (showAccountDialog) {
         Dialog(onDismissRequest = { showAccountDialog = false }) {
             Card(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
                 shape = MaterialTheme.shapes.large
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -156,7 +189,9 @@ fun HomeScreen(
     if (showManualCookieInput) {
         var cookieText by remember { mutableStateOf("") }
         Dialog(onDismissRequest = { showManualCookieInput = false }) {
-            Card(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Card(modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("添加新账号", style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(8.dp))
@@ -215,7 +250,9 @@ fun HomeScreen(
                                 AsyncImage(
                                     model = currentUser?.face,
                                     contentDescription = "Avatar",
-                                    modifier = Modifier.size(28.dp).clip(CircleShape)
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
                                 )
                             } else {
                                 Icon(Icons.Default.Person, contentDescription = "账号")
@@ -256,7 +293,9 @@ fun HomeScreen(
 
                     Button(
                         onClick = { viewModel.analyzeInput(inputText) },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
                         enabled = inputText.isNotBlank(),
                         shape = MaterialTheme.shapes.medium
                     ) {
@@ -305,7 +344,9 @@ fun HomeScreen(
 
                 is MainState.ChoiceSelect -> {
                     Column(
-                        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         BiliWebPlayer(bvid = currentState.detail.bvid)
@@ -319,11 +360,15 @@ fun HomeScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(onClick = { viewModel.startDownload(false) }, modifier = Modifier.fillMaxWidth()) { Text("下载 MP4") }
-                        OutlinedButton(onClick = { viewModel.startDownload(true) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("仅下载音频") }
+                        OutlinedButton(onClick = { viewModel.startDownload(true) }, modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)) { Text("仅下载音频") }
 
                         Button(
                             onClick = { viewModel.prepareForTranscription { onNavigateToTranscribe(it) } },
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer)
                         ) {
                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -335,7 +380,10 @@ fun HomeScreen(
 
                 is MainState.Processing -> {
                     Column(
-                        modifier = Modifier.padding(top = 100.dp).fillMaxWidth().padding(horizontal = 24.dp),
+                        modifier = Modifier
+                            .padding(top = 100.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(currentState.info, style = MaterialTheme.typography.bodyLarge)
@@ -408,10 +456,16 @@ fun HomeScreen(
 @Composable
 fun AccountItem(user: UserEntity, isCurrent: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onDelete: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AsyncImage(model = user.face, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant))
+        AsyncImage(model = user.face, contentDescription = null, modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant))
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(user.name, style = MaterialTheme.typography.bodyLarge, color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
@@ -432,7 +486,9 @@ fun QualitySelector(label: String, options: List<FormatOption>, selectedOption: 
             readOnly = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor()
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor()
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
