@@ -1,21 +1,18 @@
 package com.example.bilidownloader.ui.viewmodel
 
 import android.app.Application
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.os.Build
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.database.HistoryEntity
 import com.example.bilidownloader.data.database.UserEntity
 import com.example.bilidownloader.data.model.VideoDetail
+import com.example.bilidownloader.data.repository.DownloadSession
 import com.example.bilidownloader.data.repository.HistoryRepository
 import com.example.bilidownloader.data.repository.UserRepository
 import com.example.bilidownloader.domain.AnalyzeVideoUseCase
@@ -71,56 +68,41 @@ class MainViewModel(
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
     private var isLastDownloadAudioOnly: Boolean = false
-
-    // 【新增】永久存储用户选中的选项，解决暂停后状态丢失问题
     private var savedVideoOption: FormatOption? = null
     private var savedAudioOption: FormatOption? = null
 
-    // 广播接收器，用于监听 Service 的反馈
-    private val downloadReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            intent?.let {
-                val status = it.getStringExtra(DownloadService.BROADCAST_STATUS)
-                val msg = it.getStringExtra(DownloadService.BROADCAST_MESSAGE)
-                val progress = it.getFloatExtra(DownloadService.BROADCAST_PROGRESS, 0f)
 
-                when (status) {
-                    "loading" -> {
+    init {
+        // 【核心修改】观察全局下载状态
+        viewModelScope.launch {
+            DownloadSession.downloadState.collect { resource ->
+                when (resource) {
+                    is Resource.Loading -> {
                         _state.value = MainState.Processing(
-                            info = msg ?: "后台下载中...",
-                            progress = progress
+                            info = resource.data ?: "下载中...",
+                            progress = resource.progress
                         )
                     }
-                    "success" -> {
-                        _state.value = MainState.Success(msg ?: "下载完成")
+                    is Resource.Success -> {
+                        _state.value = MainState.Success(resource.data!!)
                     }
-                    "error" -> {
-                        when (msg) {
-                            "PAUSED" -> {
-                                val currentP = (_state.value as? MainState.Processing)?.progress ?: 0f
-                                _state.value = MainState.Processing("已暂停 (点击继续)", currentP)
-                            }
-                            "CANCELED" -> _state.value = MainState.Idle
-                            else -> _state.value = MainState.Error(msg ?: "下载失败")
+                    is Resource.Error -> {
+                        if (resource.message == "PAUSED") {
+                            val currentP = (_state.value as? MainState.Processing)?.progress ?: 0f
+                            _state.value = MainState.Processing("已暂停", currentP)
+                        } else if (resource.message == "CANCELED") {
+                            _state.value = MainState.Idle
+                        } else {
+                            _state.value = MainState.Error(resource.message ?: "失败")
                         }
                     }
                 }
             }
         }
-    }
-
-    init {
-        LocalBroadcastManager.getInstance(application).registerReceiver(
-            downloadReceiver,
-            IntentFilter(DownloadService.ACTION_PROGRESS_UPDATE)
-        )
         restoreSession()
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        LocalBroadcastManager.getInstance(getApplication()).unregisterReceiver(downloadReceiver)
-    }
+    // onCleared 中不再需要注销广播
 
     // ========================================================================
     // 1. 账号管理逻辑
@@ -216,7 +198,6 @@ class MainViewModel(
                         currentBvid = result.detail.bvid
                         currentCid = result.detail.pages[0].cid
 
-                        // 【修改】初始化保存变量
                         savedVideoOption = result.videoFormats.firstOrNull()
                         savedAudioOption = result.audioFormats.firstOrNull()
 
@@ -239,15 +220,10 @@ class MainViewModel(
     // ========================================================================
 
     fun startDownload(audioOnly: Boolean) {
-        // 【核心修复】直接使用变量，不再依赖当前 UI State 类型
         val vOpt = savedVideoOption
         val aOpt = savedAudioOption
 
-        if (!audioOnly && vOpt == null) {
-            _state.value = MainState.Error("下载参数丢失，请重新解析")
-            return
-        }
-        if (aOpt == null) {
+        if ((!audioOnly && vOpt == null) || aOpt == null) {
             _state.value = MainState.Error("下载参数丢失，请重新解析")
             return
         }
@@ -274,7 +250,6 @@ class MainViewModel(
             context.startService(intent)
         }
 
-        // 优化：如果是“继续”操作，不重置进度条防止闪烁
         if (_state.value !is MainState.Processing) {
             _state.value = MainState.Processing("正在启动下载...", 0f)
         } else {
@@ -290,12 +265,14 @@ class MainViewModel(
         }
         context.startService(intent)
         val currentProgress = (state.value as? MainState.Processing)?.progress ?: 0f
-        _state.value = MainState.Processing("已暂停 (点击继续)", currentProgress)
+        _state.value = MainState.Processing("已暂停", currentProgress)
     }
 
     fun resumeDownload() {
         startDownload(isLastDownloadAudioOnly)
     }
+
+
 
     fun cancelDownload() {
         val context = getApplication<Application>()
@@ -340,7 +317,6 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.IO) { historyRepository.deleteList(list) }
     }
 
-    // 【修改】更新 UI 的同时保存到变量中
     fun updateSelectedVideo(option: FormatOption) {
         savedVideoOption = option
         val cur = _state.value

@@ -1,15 +1,15 @@
 package com.example.bilidownloader.ui.screen
 
-import android.Manifest // 【新增 import】
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.pm.PackageManager // 【新增 import】
-import android.os.Build // 【新增 import】
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult // 【新增 import】
-import androidx.activity.result.contract.ActivityResultContracts // 【新增 import】
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -30,7 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.core.content.ContextCompat // 【新增 import】
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -403,32 +403,63 @@ fun HomeScreen(
 
                         Spacer(modifier = Modifier.height(32.dp))
 
-                        // --- 修改点：新增控制按钮组 ---
+                        // ============================================================
+                        // 【核心修改】判断是否处于“纯下载”阶段
+                        // 逻辑：进度小于 90% 且 提示信息不包含“暂停”
+                        // 大于 90% 时进入合并/转码阶段，禁止操作，防止损坏文件
+                        // ============================================================
+                        val isDownloadingPhase = currentState.progress < 0.9f
+
+                        // 按钮组
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             if (currentState.info.contains("暂停")) {
+                                // 状态：已暂停 -> 显示“继续”
+                                // 暂停状态下肯定允许点击继续，所以 enabled = true
                                 Button(
                                     onClick = { viewModel.resumeDownload() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    )
                                 ) {
                                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text("继续")
                                 }
                             } else {
-                                OutlinedButton(onClick = { viewModel.pauseDownload() }) {
-                                    // 常用暂停图标或文字
+                                // 状态：运行中 -> 显示“暂停”
+                                // 只有在下载阶段 (isDownloadingPhase) 才能暂停
+                                OutlinedButton(
+                                    onClick = { viewModel.pauseDownload() },
+                                    enabled = isDownloadingPhase // >90% 变灰不可点
+                                ) {
                                     Text("暂停")
                                 }
                             }
 
+                            // 状态：取消按钮
+                            // 只有在下载阶段才能取消，合并时取消容易崩
                             TextButton(
                                 onClick = { viewModel.cancelDownload() },
-                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                enabled = isDownloadingPhase, // >90% 变灰不可点
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                    disabledContentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.38f) // 变灰时的颜色
+                                )
                             ) {
                                 Text("取消任务")
                             }
+                        }
+
+                        // 如果进入处理阶段，给个提示
+                        if (!isDownloadingPhase) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "正在处理文件，请勿关闭...",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
                         }
                     }
                 }

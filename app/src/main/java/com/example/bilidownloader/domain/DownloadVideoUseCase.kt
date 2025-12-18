@@ -16,6 +16,12 @@ import java.io.File
 import java.net.URLDecoder
 import java.util.TreeMap
 
+/**
+ * 视频下载用例 (修复版)
+ * 1. 修复了 codecs 可能为空导致的编译错误
+ * 2. 修复了异常导致协程崩溃的问题
+ * 3. 增加了对非标准视频流的容错处理
+ */
 class DownloadVideoUseCase(
     private val context: Context,
     private val downloadRepository: DownloadRepository
@@ -30,34 +36,40 @@ class DownloadVideoUseCase(
 
     operator fun invoke(params: Params): Flow<Resource<String>> = flow {
         emit(Resource.Loading(progress = 0f, data = "准备下载..."))
+
+        var videoFile: File? = null
+        var audioFile: File? = null
+        var outMp4: File? = null
+
         try {
             val cacheDir = context.cacheDir
 
-            // 1. 获取签名
+            // 1. 获取签名与 API 请求
             val qn = params.videoOption?.id ?: params.audioOption.id
             val queryMap = getSignedParams(params.bvid, params.cid, qn)
 
-            // 2. 获取 API 数据
             val playResp = NetworkModule.biliService.getPlayUrl(queryMap).execute()
-            val dash = playResp.body()?.data?.dash ?: throw Exception("无法获取流地址 (Dash为空)")
+            val responseBody = playResp.body()
 
-            // ================================================================
-            // 【关键修改】文件名必须包含 ID 和 Codec，确保唯一性
-            // ================================================================
-
-            // 音频临时文件: BV_CID_30280_mp4a_audio.tmp
-            val audioSuffix = "${params.audioOption.id}_${params.audioOption.codecs}"
-            val audioTempName = "${params.bvid}_${params.cid}_${audioSuffix}_audio.tmp"
-            val audioFile = File(cacheDir, audioTempName)
-
-            // 视频临时文件 (仅当不是纯音频模式时生成)
-            val videoTempName = if (!params.audioOnly && params.videoOption != null) {
-                val vOpt = params.videoOption
-                // 例如: BV_CID_80_avc_video.tmp
-                "${params.bvid}_${params.cid}_${vOpt.id}_${vOpt.codecs}_video.tmp"
-            } else {
-                ""
+            if (responseBody?.code != 0) {
+                throw Exception("API 错误: ${responseBody?.message} (code: ${responseBody?.code})")
             }
+
+            val data = responseBody.data ?: throw Exception("API 返回数据为空")
+
+            if (data.dash == null) {
+                throw Exception("该视频格式(durl)暂不支持下载，仅支持 DASH 格式")
+            }
+            val dash = data.dash
+
+            // ================================================================
+            // 准备文件名 (修复 codecs 可能为空的问题)
+            // ================================================================
+            // 【修复点 1】给 codecs 加默认值 "unk" (unknown)
+            val safeAudioCodec = params.audioOption.codecs ?: "unk"
+            val audioSuffix = "${params.audioOption.id}_${safeAudioCodec.replace("[^a-zA-Z0-9]".toRegex(), "")}"
+            val audioTempName = "${params.bvid}_${params.cid}_${audioSuffix}_audio.tmp"
+            audioFile = File(cacheDir, audioTempName)
 
             // ================================================================
             // 分支 A: 仅下载音频
@@ -69,7 +81,7 @@ class DownloadVideoUseCase(
                     null
                 } ?: dash.audio?.find { it.id == params.audioOption.id }?.baseUrl
                 ?: dash.audio?.firstOrNull()?.baseUrl
-                ?: throw Exception("未找到音频流")
+                ?: throw Exception("未找到可用的音频流")
 
                 val suffix = if (params.audioOption.codecs == "flac") ".flac" else ".mp3"
                 val outAudio = File(cacheDir, "${params.bvid}_out$suffix")
@@ -85,50 +97,58 @@ class DownloadVideoUseCase(
                 } else {
                     FFmpegHelper.convertAudioToMp3(audioFile, outAudio)
                 }
-                if (!success) throw Exception("音频处理失败")
+                if (!success) throw Exception("音频转码失败")
 
                 StorageHelper.saveAudioToMusic(context, outAudio, "Bili_${params.bvid}$suffix")
 
                 outAudio.delete()
-                if (audioFile.exists()) audioFile.delete() // 下载完删除临时文件
-                emit(Resource.Success("音频已保存"))
+                audioFile.delete()
+                emit(Resource.Success("音频已保存到音乐库"))
             }
             // ================================================================
             // 分支 B: 视频 + 音频
             // ================================================================
             else {
-                val vOpt = params.videoOption!!
+                val vOpt = params.videoOption ?: throw Exception("视频参数丢失")
 
                 val videoUrl: String = dash.video.find { it.id == vOpt.id && it.codecs == vOpt.codecs }?.baseUrl
+                    ?: dash.video.find { it.id == vOpt.id }?.baseUrl
                     ?: dash.video.firstOrNull()?.baseUrl
-                    ?: throw Exception("视频流丢失")
+                    ?: throw Exception("未找到视频流")
 
                 val foundAudioUrl: String = dash.audio?.find { it.id == params.audioOption.id }?.baseUrl
                     ?: dash.audio?.firstOrNull()?.baseUrl
-                    ?: throw Exception("音频流丢失")
+                    ?: throw Exception("未找到音频流")
 
-                val videoFile = File(cacheDir, videoTempName)
-                val outMp4 = File(cacheDir, "${params.bvid}_${System.currentTimeMillis()}.mp4") // 最终文件名可以用时间戳避免冲突
+                // 视频临时文件名
+                // 【修复点 2】给 codecs 加默认值 "unk"
+                val safeVideoCodec = vOpt.codecs ?: "unk"
+                val videoSuffix = "${vOpt.id}_${safeVideoCodec.replace("[^a-zA-Z0-9]".toRegex(), "")}"
+                val videoTempName = "${params.bvid}_${params.cid}_${videoSuffix}_video.tmp"
+                videoFile = File(cacheDir, videoTempName)
 
-                // 下载视频
+                outMp4 = File(cacheDir, "${params.bvid}_${System.currentTimeMillis()}.mp4")
+
+                // 1. 下载视频
                 downloadRepository.downloadFile(videoUrl, videoFile).collect { p ->
                     emit(Resource.Loading(progress = p * 0.45f, data = "正在下载视频流..."))
                 }
 
-                // 下载音频
+                // 2. 下载音频
                 downloadRepository.downloadFile(foundAudioUrl, audioFile).collect { p ->
                     emit(Resource.Loading(progress = 0.45f + p * 0.45f, data = "正在下载音频流..."))
                 }
 
-                // 合并
+                // 3. 合并
                 emit(Resource.Loading(progress = 0.9f, data = "正在合并音视频..."))
                 val success = FFmpegHelper.mergeVideoAudio(videoFile, audioFile, outMp4)
-                if (!success) throw Exception("合并失败")
+                if (!success) throw Exception("FFmpeg 合并失败")
 
+                // 4. 保存
                 emit(Resource.Loading(progress = 0.98f, data = "正在保存..."))
                 StorageHelper.saveVideoToGallery(context, outMp4, "Bili_${params.bvid}.mp4")
 
-                // 成功后才删除临时文件
+                // 清理
                 videoFile.delete()
                 audioFile.delete()
                 outMp4.delete()
@@ -138,7 +158,9 @@ class DownloadVideoUseCase(
 
         } catch (e: Exception) {
             e.printStackTrace()
-            throw e
+            // 捕获异常发送给 UI，避免 Crash
+            emit(Resource.Error("下载出错: ${e.message}"))
+            outMp4?.delete()
         }
     }.flowOn(Dispatchers.IO)
 

@@ -10,10 +10,10 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.example.bilidownloader.MyApplication
 import com.example.bilidownloader.R
 import com.example.bilidownloader.core.common.Resource
+import com.example.bilidownloader.data.repository.DownloadSession
 import com.example.bilidownloader.domain.DownloadVideoUseCase
 import com.example.bilidownloader.ui.state.FormatOption
 import com.google.gson.Gson
@@ -33,17 +33,12 @@ class DownloadService : Service() {
         const val ACTION_PAUSE = "action_pause"
         const val ACTION_RESUME = "action_resume"
         const val ACTION_CANCEL = "action_cancel"
-        const val ACTION_PROGRESS_UPDATE = "action_progress_update"
 
         const val EXTRA_BVID = "extra_bvid"
         const val EXTRA_CID = "extra_cid"
         const val EXTRA_VIDEO_OPT = "extra_video_opt"
         const val EXTRA_AUDIO_OPT = "extra_audio_opt"
         const val EXTRA_AUDIO_ONLY = "extra_audio_only"
-
-        const val BROADCAST_STATUS = "status"
-        const val BROADCAST_MESSAGE = "message"
-        const val BROADCAST_PROGRESS = "progress"
 
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "download_channel"
@@ -56,7 +51,7 @@ class DownloadService : Service() {
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BiliDownloader:DownloadService")
-        wakeLock.acquire(10 * 60 * 1000L)
+        wakeLock.acquire(10 * 60 * 1000L) // 10分钟唤醒锁
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -99,54 +94,51 @@ class DownloadService : Service() {
         downloadJob = serviceScope.launch {
             try {
                 downloadUseCase(params).collect { resource ->
-                    when (resource) {
-                        is Resource.Loading -> {
-                            val p = (resource.progress * 100).toInt()
-                            val msg = resource.data ?: "下载中..."
+                    val currentTime = System.currentTimeMillis()
+                    var shouldUpdateNotif = true
+                    if (resource is Resource.Loading && (currentTime - lastNotifyTime < 1000 && resource.progress > 0.01f)) {
+                        shouldUpdateNotif = false
+                    }
 
-                            val currentTime = System.currentTimeMillis()
-                            if (currentTime - lastNotifyTime > 1000 || resource.progress <= 0.01f) {
-                                updateNotification(msg, p, false)
-                                lastNotifyTime = currentTime
-                            }
-
-                            sendBroadcast(Resource.Loading(resource.progress, msg))
+                    if (shouldUpdateNotif) {
+                        val (message, progress, isIndeterminate) = when (resource) {
+                            is Resource.Loading -> Triple(resource.data ?: "下载中...", (resource.progress * 100).toInt(), false)
+                            is Resource.Success -> Triple("下载完成", 100, false)
+                            is Resource.Error -> Triple("出错: ${resource.message}", 0, false)
                         }
-                        is Resource.Success -> {
-                            // 1. 先更新状态为完成
-                            updateNotification("下载完成", 100, false)
-                            sendBroadcast(Resource.Success(resource.data!!))
+                        updateNotification(message, progress, isIndeterminate)
+                        if (resource is Resource.Loading) lastNotifyTime = currentTime
+                    }
 
-                            // 【核心修改】不立即自杀，而是启动一个延时任务
+                    DownloadSession.updateState(resource)
+
+                    when (resource) {
+                        is Resource.Success -> {
                             launch {
-                                // (A) 退出前台服务状态，但保留通知 (STOP_FOREGROUND_DETACH)
-                                // 这样服务不再是“前台”服务，但通知还在
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                                     stopForeground(STOP_FOREGROUND_DETACH)
                                 } else {
                                     @Suppress("DEPRECATION")
                                     stopForeground(false)
                                 }
-
-                                // (B) 延迟 5 秒
                                 delay(5000)
-
-                                // (C) 5秒后，移除通知并停止服务
                                 notificationManager.cancel(NOTIFICATION_ID)
                                 stopSelf()
                             }
                         }
                         is Resource.Error -> {
-                            updateNotification("出错: ${resource.message}", 0, false)
-                            sendBroadcast(Resource.Error(resource.message ?: "Error"))
-                            // 出错时不自动消失，让用户看到，或者你可以也加个 delay
-                            stopForeground(true) // 出错可以直接移除前台状态
-                            // stopSelf() // 可以选择不立即停止，等待用户操作
+                            stopForeground(true)
                         }
+                        else -> { /* Loading... */ }
                     }
                 }
             } catch (e: CancellationException) {
-                // 协程取消触发
+                // Coroutine cancelled
+            } catch (e: Exception) {
+                val errorResource = Resource.Error<String>(e.message ?: "未知错误")
+                DownloadSession.updateState(errorResource)
+                updateNotification(errorResource.message ?: "未知错误", 0, false)
+                stopForeground(true)
             }
         }
     }
@@ -156,7 +148,10 @@ class DownloadService : Service() {
             downloadJob?.cancel()
             downloadJob = null
             updateNotification("下载已暂停", 0, false)
-            sendBroadcast(Resource.Error("PAUSED"))
+            // 【修复】在协程中调用 suspend 函数
+            serviceScope.launch {
+                DownloadSession.updateState(Resource.Error("PAUSED"))
+            }
         }
     }
 
@@ -165,7 +160,10 @@ class DownloadService : Service() {
             downloadJob?.cancel()
             downloadJob = null
         }
-        sendBroadcast(Resource.Error("CANCELED"))
+        // 【修复】在协程中调用 suspend 函数
+        serviceScope.launch {
+            DownloadSession.updateState(Resource.Error("CANCELED"))
+        }
         notificationManager.cancel(NOTIFICATION_ID)
         stopForeground(true)
         stopSelf()
@@ -182,30 +180,10 @@ class DownloadService : Service() {
             .setContentText(content)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setProgress(100, progress, indeterminate)
-            .setOngoing(true)
+            .setOngoing(progress < 100)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-    }
-
-    private fun sendBroadcast(resource: Resource<String>) {
-        val intent = Intent(ACTION_PROGRESS_UPDATE)
-        when (resource) {
-            is Resource.Loading -> {
-                intent.putExtra(BROADCAST_STATUS, "loading")
-                intent.putExtra(BROADCAST_PROGRESS, resource.progress)
-                intent.putExtra(BROADCAST_MESSAGE, resource.data)
-            }
-            is Resource.Success -> {
-                intent.putExtra(BROADCAST_STATUS, "success")
-                intent.putExtra(BROADCAST_MESSAGE, resource.data)
-            }
-            is Resource.Error -> {
-                intent.putExtra(BROADCAST_STATUS, "error")
-                intent.putExtra(BROADCAST_MESSAGE, resource.message)
-            }
-        }
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
     }
 
     private fun createNotificationChannel() {
@@ -215,15 +193,16 @@ class DownloadService : Service() {
                 "视频下载",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
-        if (::wakeLock.isInitialized && wakeLock.isHeld) wakeLock.release()
+        if (::wakeLock.isInitialized && wakeLock.isHeld) {
+            wakeLock.release()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
