@@ -70,6 +70,11 @@ class MainViewModel(
     private var currentBvid: String = ""
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
+    private var isLastDownloadAudioOnly: Boolean = false
+
+    // 【新增】永久存储用户选中的选项，解决暂停后状态丢失问题
+    private var savedVideoOption: FormatOption? = null
+    private var savedAudioOption: FormatOption? = null
 
     // 广播接收器，用于监听 Service 的反馈
     private val downloadReceiver = object : BroadcastReceiver() {
@@ -90,7 +95,14 @@ class MainViewModel(
                         _state.value = MainState.Success(msg ?: "下载完成")
                     }
                     "error" -> {
-                        _state.value = MainState.Error(msg ?: "下载失败")
+                        when (msg) {
+                            "PAUSED" -> {
+                                val currentP = (_state.value as? MainState.Processing)?.progress ?: 0f
+                                _state.value = MainState.Processing("已暂停 (点击继续)", currentP)
+                            }
+                            "CANCELED" -> _state.value = MainState.Idle
+                            else -> _state.value = MainState.Error(msg ?: "下载失败")
+                        }
                     }
                 }
             }
@@ -98,25 +110,21 @@ class MainViewModel(
     }
 
     init {
-        // 1. 注册进度监听广播
         LocalBroadcastManager.getInstance(application).registerReceiver(
             downloadReceiver,
             IntentFilter(DownloadService.ACTION_PROGRESS_UPDATE)
         )
-        // 2. 恢复登录 Session
         restoreSession()
     }
 
     override fun onCleared() {
         super.onCleared()
-        // 必须注销广播，防止 Context 泄露
         LocalBroadcastManager.getInstance(getApplication()).unregisterReceiver(downloadReceiver)
     }
 
     // ========================================================================
     // 1. 账号管理逻辑
     // ========================================================================
-
     private fun restoreSession() {
         viewModelScope.launch(Dispatchers.IO) {
             val activeUser = userRepository.getCurrentUser()
@@ -195,9 +203,8 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 2. 核心业务：解析视频
+    // 2. 解析视频
     // ========================================================================
-
     fun analyzeInput(input: String) {
         viewModelScope.launch {
             analyzeVideoUseCase(input).collect { resource ->
@@ -209,12 +216,16 @@ class MainViewModel(
                         currentBvid = result.detail.bvid
                         currentCid = result.detail.pages[0].cid
 
+                        // 【修改】初始化保存变量
+                        savedVideoOption = result.videoFormats.firstOrNull()
+                        savedAudioOption = result.audioFormats.firstOrNull()
+
                         _state.value = MainState.ChoiceSelect(
                             detail = result.detail,
                             videoFormats = result.videoFormats,
                             audioFormats = result.audioFormats,
-                            selectedVideo = result.videoFormats.firstOrNull(),
-                            selectedAudio = result.audioFormats.firstOrNull()
+                            selectedVideo = savedVideoOption,
+                            selectedAudio = savedAudioOption
                         )
                     }
                     is Resource.Error -> _state.value = MainState.Error(resource.message ?: "未知解析错误")
@@ -224,27 +235,28 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 3. 核心业务：下载 (重构为启动 Service)
+    // 3. 核心业务：下载控制
     // ========================================================================
 
     fun startDownload(audioOnly: Boolean) {
-        val currentState = _state.value as? MainState.ChoiceSelect ?: return
-        val vOpt = currentState.selectedVideo
-        val aOpt = currentState.selectedAudio
+        // 【核心修复】直接使用变量，不再依赖当前 UI State 类型
+        val vOpt = savedVideoOption
+        val aOpt = savedAudioOption
 
-        // 校验选择
         if (!audioOnly && vOpt == null) {
-            _state.value = MainState.Error("请选择画质")
+            _state.value = MainState.Error("下载参数丢失，请重新解析")
             return
         }
         if (aOpt == null) {
-            _state.value = MainState.Error("请选择音质")
+            _state.value = MainState.Error("下载参数丢失，请重新解析")
             return
         }
 
+        isLastDownloadAudioOnly = audioOnly
+
         val context = getApplication<Application>()
         val intent = Intent(context, DownloadService::class.java).apply {
-            action = DownloadService.ACTION_START_DOWNLOAD
+            action = DownloadService.ACTION_START
             putExtra(DownloadService.EXTRA_BVID, currentBvid)
             putExtra(DownloadService.EXTRA_CID, currentCid)
             putExtra(DownloadService.EXTRA_AUDIO_ONLY, audioOnly)
@@ -256,31 +268,55 @@ class MainViewModel(
             }
         }
 
-        // 启动前台服务
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
         } else {
             context.startService(intent)
         }
 
-        // 立即更新 UI 状态，提示用户后台已接管
-        _state.value = MainState.Processing("正在启动后台服务...", 0f)
+        // 优化：如果是“继续”操作，不重置进度条防止闪烁
+        if (_state.value !is MainState.Processing) {
+            _state.value = MainState.Processing("正在启动下载...", 0f)
+        } else {
+            val p = (_state.value as? MainState.Processing)?.progress ?: 0f
+            _state.value = MainState.Processing("继续下载中...", p)
+        }
+    }
+
+    fun pauseDownload() {
+        val context = getApplication<Application>()
+        val intent = Intent(context, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_PAUSE
+        }
+        context.startService(intent)
+        val currentProgress = (state.value as? MainState.Processing)?.progress ?: 0f
+        _state.value = MainState.Processing("已暂停 (点击继续)", currentProgress)
+    }
+
+    fun resumeDownload() {
+        startDownload(isLastDownloadAudioOnly)
+    }
+
+    fun cancelDownload() {
+        val context = getApplication<Application>()
+        val intent = Intent(context, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_CANCEL
+        }
+        context.startService(intent)
+        _state.value = MainState.Idle
     }
 
     // ========================================================================
-    // 4. 辅助业务：转写准备 (保持原样，此操作较轻量)
+    // 4. 其他辅助业务
     // ========================================================================
-
     fun prepareForTranscription(onReady: (String) -> Unit) {
         viewModelScope.launch {
             val params = PrepareTranscribeUseCase.Params(currentBvid, currentCid)
-
             prepareTranscribeUseCase(params).collect { resource ->
                 when (resource) {
                     is Resource.Loading -> {
                         val msg = resource.message ?: resource.data
                         val progressValue = resource.progress
-
                         _state.value = MainState.Processing(
                             info = msg ?: "准备中...",
                             progress = if (progressValue >= 0f) progressValue else 0f
@@ -298,26 +334,21 @@ class MainViewModel(
         }
     }
 
-    // ========================================================================
-    // 5. 其他 UI 操作
-    // ========================================================================
-
-    fun reset() {
-        _state.value = MainState.Idle
-    }
+    fun reset() { _state.value = MainState.Idle }
 
     fun deleteHistories(list: List<HistoryEntity>) {
-        viewModelScope.launch(Dispatchers.IO) {
-            historyRepository.deleteList(list)
-        }
+        viewModelScope.launch(Dispatchers.IO) { historyRepository.deleteList(list) }
     }
 
+    // 【修改】更新 UI 的同时保存到变量中
     fun updateSelectedVideo(option: FormatOption) {
+        savedVideoOption = option
         val cur = _state.value
         if (cur is MainState.ChoiceSelect) _state.value = cur.copy(selectedVideo = option)
     }
 
     fun updateSelectedAudio(option: FormatOption) {
+        savedAudioOption = option
         val cur = _state.value
         if (cur is MainState.ChoiceSelect) _state.value = cur.copy(selectedAudio = option)
     }

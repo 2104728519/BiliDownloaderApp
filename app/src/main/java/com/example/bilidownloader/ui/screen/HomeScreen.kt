@@ -88,7 +88,7 @@ fun HomeScreen(
         }
     }
 
-    // --- 弹窗逻辑：账号管理 ---
+    // --- 弹窗逻辑 (账号管理与手动输入) 保持不变 ---
     if (showAccountDialog) {
         Dialog(onDismissRequest = { showAccountDialog = false }) {
             Card(
@@ -153,7 +153,6 @@ fun HomeScreen(
         }
     }
 
-    // --- 弹窗逻辑：手动输入 ---
     if (showManualCookieInput) {
         var cookieText by remember { mutableStateOf("") }
         Dialog(onDismissRequest = { showManualCookieInput = false }) {
@@ -236,19 +235,17 @@ fun HomeScreen(
         ) {
             when (val currentState = state) {
                 is MainState.Idle -> {
-                    // 输入框与解析按钮
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { inputText = it },
                         label = { Text("粘贴 B 站链接或文字") },
-                        placeholder = { Text("支持短链接、BV号，可包含其他文字") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 6,
                         trailingIcon = {
                             if (inputText.isNotEmpty()) {
                                 IconButton(onClick = { inputText = "" }) {
-                                    Icon(Icons.Default.Close, contentDescription = "清空", tint = MaterialTheme.colorScheme.outline)
+                                    Icon(Icons.Default.Close, contentDescription = "清空")
                                 }
                             }
                         },
@@ -338,27 +335,53 @@ fun HomeScreen(
 
                 is MainState.Processing -> {
                     Column(
-                        modifier = Modifier.padding(top = 100.dp).fillMaxWidth(),
+                        modifier = Modifier.padding(top = 100.dp).fillMaxWidth().padding(horizontal = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(currentState.info, style = MaterialTheme.typography.bodyLarge)
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // 【核心修复】直接使用精确进度
                         LinearProgressIndicator(
                             progress = { currentState.progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp)
+                            modifier = Modifier.fillMaxWidth()
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
-                        // 显示百分比
                         Text(
                             text = "${(currentState.progress * 100).toInt()}%",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary
                         )
+
+                        Spacer(modifier = Modifier.height(32.dp))
+
+                        // --- 修改点：新增控制按钮组 ---
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            if (currentState.info.contains("暂停")) {
+                                Button(
+                                    onClick = { viewModel.resumeDownload() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("继续")
+                                }
+                            } else {
+                                OutlinedButton(onClick = { viewModel.pauseDownload() }) {
+                                    // 常用暂停图标或文字
+                                    Text("暂停")
+                                }
+                            }
+
+                            TextButton(
+                                onClick = { viewModel.cancelDownload() },
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Text("取消任务")
+                            }
+                        }
                     }
                 }
 
@@ -380,50 +403,27 @@ fun HomeScreen(
     }
 }
 
-// ... 后续 AccountItem 和 QualitySelector 代码保持不变 ...
+// AccountItem 和 QualitySelector 保持不变...
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AccountItem(
-    user: UserEntity,
-    isCurrent: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    onDelete: () -> Unit
-) {
+fun AccountItem(user: UserEntity, isCurrent: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onDelete: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AsyncImage(
-            model = user.face,
-            contentDescription = null,
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        )
+        AsyncImage(model = user.face, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant))
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(user.name, style = MaterialTheme.typography.bodyLarge, color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
             Text(if (isCurrent) "使用中 (长按复制)" else "点击切换 / 长按复制", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
         }
-        IconButton(onClick = onDelete) {
-            Icon(Icons.Default.Close, contentDescription = "注销", tint = MaterialTheme.colorScheme.outline)
-        }
+        IconButton(onClick = onDelete) { Icon(Icons.Default.Close, contentDescription = "注销", tint = MaterialTheme.colorScheme.outline) }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QualitySelector(
-    label: String,
-    options: List<FormatOption>,
-    selectedOption: FormatOption?,
-    onOptionSelected: (FormatOption) -> Unit
-) {
+fun QualitySelector(label: String, options: List<FormatOption>, selectedOption: FormatOption?, onOptionSelected: (FormatOption) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
         OutlinedTextField(
@@ -432,16 +432,11 @@ fun QualitySelector(
             readOnly = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor()
+            modifier = Modifier.fillMaxWidth().menuAnchor()
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option.label) },
-                    onClick = { onOptionSelected(option); expanded = false }
-                )
+                DropdownMenuItem(text = { Text(option.label) }, onClick = { onOptionSelected(option); expanded = false })
             }
         }
     }

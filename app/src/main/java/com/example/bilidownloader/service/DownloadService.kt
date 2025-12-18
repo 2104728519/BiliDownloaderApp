@@ -17,11 +17,7 @@ import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.domain.DownloadVideoUseCase
 import com.example.bilidownloader.ui.state.FormatOption
 import com.google.gson.Gson
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 
 class DownloadService : Service() {
 
@@ -29,19 +25,25 @@ class DownloadService : Service() {
     private lateinit var notificationManager: NotificationManager
     private lateinit var wakeLock: PowerManager.WakeLock
 
+    private var downloadJob: Job? = null
+
+    // 【核心修复】用于限制通知栏更新频率的时间戳
+    private var lastNotifyTime = 0L
+
     companion object {
-        const val ACTION_START_DOWNLOAD = "action_start_download"
+        const val ACTION_START = "action_start"
+        const val ACTION_PAUSE = "action_pause"
+        const val ACTION_RESUME = "action_resume"
+        const val ACTION_CANCEL = "action_cancel"
         const val ACTION_PROGRESS_UPDATE = "action_progress_update"
 
-        // Intent Params
         const val EXTRA_BVID = "extra_bvid"
         const val EXTRA_CID = "extra_cid"
-        const val EXTRA_VIDEO_OPT = "extra_video_opt" // JSON string
-        const val EXTRA_AUDIO_OPT = "extra_audio_opt" // JSON string
+        const val EXTRA_VIDEO_OPT = "extra_video_opt"
+        const val EXTRA_AUDIO_OPT = "extra_audio_opt"
         const val EXTRA_AUDIO_ONLY = "extra_audio_only"
 
-        // Broadcast Extras
-        const val BROADCAST_STATUS = "status" // "loading", "success", "error"
+        const val BROADCAST_STATUS = "status"
         const val BROADCAST_MESSAGE = "message"
         const val BROADCAST_PROGRESS = "progress"
 
@@ -54,34 +56,38 @@ class DownloadService : Service() {
         createNotificationChannel()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // 获取电源锁，防止熄屏后 CPU 休眠导致 FFmpeg 合并失败
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BiliDownloader:DownloadService")
-        wakeLock.acquire(10 * 60 * 1000L /* 10 minutes timeout */)
+        wakeLock.acquire(10 * 60 * 1000L)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_START_DOWNLOAD) {
-            val bvid = intent.getStringExtra(EXTRA_BVID) ?: ""
-            val cid = intent.getLongExtra(EXTRA_CID, 0L)
-            val vOptJson = intent.getStringExtra(EXTRA_VIDEO_OPT)
-            val aOptJson = intent.getStringExtra(EXTRA_AUDIO_OPT)
-            val audioOnly = intent.getBooleanExtra(EXTRA_AUDIO_ONLY, false)
+        when (intent?.action) {
+            ACTION_START, ACTION_RESUME -> {
+                if (downloadJob?.isActive == true) return START_NOT_STICKY
 
-            if (bvid.isNotEmpty()) {
-                val gson = Gson()
-                val vOpt = if (vOptJson != null) gson.fromJson(vOptJson, FormatOption::class.java) else null
-                val aOpt = gson.fromJson(aOptJson, FormatOption::class.java)
+                val bvid = intent.getStringExtra(EXTRA_BVID) ?: ""
+                val cid = intent.getLongExtra(EXTRA_CID, 0L)
+                val vOptJson = intent.getStringExtra(EXTRA_VIDEO_OPT)
+                val aOptJson = intent.getStringExtra(EXTRA_AUDIO_OPT)
+                val audioOnly = intent.getBooleanExtra(EXTRA_AUDIO_ONLY, false)
 
-                val params = DownloadVideoUseCase.Params(bvid, cid, vOpt, aOpt, audioOnly)
-                startDownload(params)
+                if (bvid.isNotEmpty()) {
+                    val gson = Gson()
+                    val vOpt = if (vOptJson != null) gson.fromJson(vOptJson, FormatOption::class.java) else null
+                    val aOpt = gson.fromJson(aOptJson, FormatOption::class.java)
+
+                    val params = DownloadVideoUseCase.Params(bvid, cid, vOpt, aOpt, audioOnly)
+                    startDownload(params)
+                }
             }
+            ACTION_PAUSE -> pauseDownload()
+            ACTION_CANCEL -> cancelDownload()
         }
         return START_NOT_STICKY
     }
 
     private fun startDownload(params: DownloadVideoUseCase.Params) {
-        // 1. 启动前台通知
         val notification = buildNotification("正在准备下载...", 0, true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
@@ -89,33 +95,66 @@ class DownloadService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        // 2. 获取 UseCase (通过 Application 容器)
         val appContainer = (application as MyApplication).container
         val downloadUseCase = appContainer.downloadVideoUseCase
 
-        // 3. 执行任务
-        serviceScope.launch {
-            downloadUseCase(params).collect { resource ->
-                when (resource) {
-                    is Resource.Loading -> {
-                        val progress = resource.progress
-                        val msg = resource.data ?: "下载中..."
-                        updateNotification(msg, (progress * 100).toInt())
-                        sendBroadcast(Resource.Loading(progress, msg))
-                    }
-                    is Resource.Success -> {
-                        updateNotification("下载完成: ${resource.data}", 100, false)
-                        sendBroadcast(Resource.Success(resource.data!!))
-                        stopSelf() // 任务完成，停止服务
-                    }
-                    is Resource.Error -> {
-                        updateNotification("下载失败: ${resource.message}", 0, false)
-                        sendBroadcast(Resource.Error(resource.message ?: "未知错误"))
-                        stopSelf()
+        downloadJob = serviceScope.launch {
+            try {
+                downloadUseCase(params).collect { resource ->
+                    when (resource) {
+                        is Resource.Loading -> {
+                            val p = (resource.progress * 100).toInt()
+                            val msg = resource.data ?: "下载中..."
+
+                            // 【核心修复】加强版限流逻辑
+                            val currentTime = System.currentTimeMillis()
+                            // 1. 间隔超过 1000ms
+                            // 2. 或者处于进度极小（刚开始）的节点
+                            if (currentTime - lastNotifyTime > 1000 || resource.progress <= 0.01f) {
+                                updateNotification(msg, p, false)
+                                lastNotifyTime = currentTime
+                            }
+
+                            // 广播不受限制，保证 App 内进度条丝滑
+                            sendBroadcast(Resource.Loading(resource.progress, msg))
+                        }
+                        is Resource.Success -> {
+                            updateNotification("下载完成", 100, false)
+                            sendBroadcast(Resource.Success(resource.data!!))
+                            stopForeground(STOP_FOREGROUND_DETACH)
+                            stopSelf()
+                        }
+                        is Resource.Error -> {
+                            updateNotification("出错: ${resource.message}", 0, false)
+                            sendBroadcast(Resource.Error(resource.message ?: "Error"))
+                            stopSelf()
+                        }
                     }
                 }
+            } catch (e: CancellationException) {
+                // 协程取消触发（暂停/取消操作）
             }
         }
+    }
+
+    private fun pauseDownload() {
+        if (downloadJob?.isActive == true) {
+            downloadJob?.cancel()
+            downloadJob = null
+            updateNotification("下载已暂停", 0, false)
+            sendBroadcast(Resource.Error("PAUSED"))
+        }
+    }
+
+    private fun cancelDownload() {
+        if (downloadJob?.isActive == true) {
+            downloadJob?.cancel()
+            downloadJob = null
+        }
+        sendBroadcast(Resource.Error("CANCELED"))
+        notificationManager.cancel(NOTIFICATION_ID)
+        stopForeground(true)
+        stopSelf()
     }
 
     private fun updateNotification(content: String, progress: Int, indeterminate: Boolean = false) {
@@ -125,12 +164,13 @@ class DownloadService : Service() {
 
     private fun buildNotification(content: String, progress: Int, indeterminate: Boolean): android.app.Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("BiliDownloader 任务运行中")
+            .setContentTitle("B 站视频下载中")
             .setContentText(content)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // 请确保你有这个资源，或者换成 R.mipmap.ic_launcher
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setProgress(100, progress, indeterminate)
             .setOngoing(true)
-            .setOnlyAlertOnce(true)
+            .setOnlyAlertOnce(true) // 避免每次更新都响铃
+            .setPriority(NotificationCompat.PRIORITY_LOW) // 进一步降低干扰
             .build()
     }
 
@@ -158,18 +198,18 @@ class DownloadService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "文件下载服务",
-                NotificationManager.IMPORTANCE_LOW // Low 可以在不发出声音的情况下显示进度条
+                "视频下载",
+                NotificationManager.IMPORTANCE_LOW
             )
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            manager?.createNotificationChannel(channel)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
-        if (wakeLock.isHeld) wakeLock.release()
+        if (::wakeLock.isInitialized && wakeLock.isHeld) wakeLock.release()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
