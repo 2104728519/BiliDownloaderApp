@@ -43,6 +43,7 @@ data class VideoDetail(
 )
 
 data class Owner(
+    val mid: Long,
     val name: String, // UP主名字
     val face: String  // UP主头像
 )
