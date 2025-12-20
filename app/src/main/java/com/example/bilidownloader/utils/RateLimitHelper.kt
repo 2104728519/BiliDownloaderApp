@@ -1,82 +1,117 @@
 package com.example.bilidownloader.utils
 
-import kotlinx.coroutines.delay
 import java.util.LinkedList
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Gemini 免费版配额管理器
- * 限制：
- * 1. 20 RPM (每分钟请求数 < 20)
- * 2. 12,000 TPM (每分钟 Token 数 < 12000)
+ * 智能模型配额管理器
+ * 负责统计每个模型的用量，并根据任务大小自动分配模型
  */
 object RateLimitHelper {
 
-    private const val MAX_RPM = 15      // 限制为 15 (官方20，留5个余量给手动操作或其他)
-    private const val MAX_TPM = 10000   // 限制为 10000 (官方12000，留余量)
-    private const val WINDOW_MS = 60 * 1000L // 1分钟时间窗口
+    // 定义支持的模型及其限制 (基于你提供的数据，稍微留了点安全余量)
+    enum class AiModel(val apiName: String, val maxRpm: Int, val maxTpm: Int) {
+        // 小任务首选：Gemma (RPM高，TPM低)
+        GEMMA_3_27B("gemma-3-27b-it", 28, 14000),
 
-    // 记录过去1分钟内的请求时间戳
-    private val requestTimestamps = LinkedList<Long>()
-    // 记录过去1分钟内的 Token 消耗 (时间戳 -> Token数)
-    private val tokenUsageHistory = LinkedList<Pair<Long, Int>>()
+        // 大任务/备用：Gemini Flash (RPM低，TPM超高)
+        GEMINI_FLASH("gemini-2.5-flash", 5, 200000),
+
+        // 最后的备胎：Flash Lite (RPM适中，TPM超高)
+        GEMINI_LITE("gemini-2.5-flash-lite", 9, 200000)
+    }
+
+    private const val WINDOW_MS = 60 * 1000L // 1分钟窗口
+
+    // 存储每个模型的请求历史 (ModelName -> List<Timestamp>)
+    private val requestHistory = ConcurrentHashMap<String, LinkedList<Long>>()
+    // 存储每个模型的Token历史 (ModelName -> List<Pair<Timestamp, TokenCount>>)
+    private val tokenHistory = ConcurrentHashMap<String, LinkedList<Pair<Long, Int>>>()
 
     /**
-     * 检查并等待配额
-     * @param estimatedTokens 预计本次请求消耗的 Token 数 (字符数 / 4)
+     * 智能选择最佳模型
+     * @param estimatedTokens 预计消耗 Token
+     * @return 返回可用的模型对象；如果所有模型都配额不足，返回 null
      */
-    suspend fun waitForQuota(estimatedTokens: Int) {
-        while (true) {
-            cleanOldRecords() // 清理1分钟以前的记录
+    @Synchronized
+    fun selectBestModel(estimatedTokens: Int): AiModel? {
+        cleanOldRecords() // 先清理过期记录
 
-            val currentRpm = requestTimestamps.size
-            val currentTpm = tokenUsageHistory.sumOf { it.second }
-
-            // 检查是否超标
-            val isRpmSafe = currentRpm < MAX_RPM
-            val isTpmSafe = (currentTpm + estimatedTokens) < MAX_TPM
-
-            if (isRpmSafe && isTpmSafe) {
-                // 配额充足，记录本次请求并放行
-                recordUsage(estimatedTokens)
-                break
-            } else {
-                // 配额不足，等待 5 秒后重试
-                // 实际场景可以更智能，比如算出最早过期的记录还要多久
-                delay(5000)
+        // 策略 1: 如果 Token 很少 (< 8000)，优先尝试 Gemma (省着用大模型)
+        if (estimatedTokens < 8000) {
+            if (isModelAvailable(AiModel.GEMMA_3_27B, estimatedTokens)) {
+                return AiModel.GEMMA_3_27B
             }
         }
+
+        // 策略 2: 如果 Gemma 扛不住 (Token太多 或 RPM耗尽)，尝试 Gemini Flash
+        if (isModelAvailable(AiModel.GEMINI_FLASH, estimatedTokens)) {
+            return AiModel.GEMINI_FLASH
+        }
+
+        // 策略 3: 如果 Flash 也挂了，尝试 Lite
+        if (isModelAvailable(AiModel.GEMINI_LITE, estimatedTokens)) {
+            return AiModel.GEMINI_LITE
+        }
+
+        // 所有模型都不可用
+        return null
     }
 
     /**
-     * 估算字符串的 Token 数
-     * 简单算法：中文/英文混合环境下，平均 1 Token ≈ 3~4 字符
-     * 我们按保守的 1 Token = 2 字符计算，或者直接用字符数，宁可多算不可少算
+     * 记录一次实际使用
+     */
+    @Synchronized
+    fun recordUsage(model: AiModel, tokenCount: Int) {
+        val now = System.currentTimeMillis()
+
+        requestHistory.computeIfAbsent(model.name) { LinkedList() }.add(now)
+        tokenHistory.computeIfAbsent(model.name) { LinkedList() }.add(now to tokenCount)
+    }
+
+    /**
+     * 估算 Token 数 (简单版：字符数 / 2.5)
+     * 中文比较占 Token，Gemma 的 Tokenizer 对中文处理效率不如 Gemini
      */
     fun estimateTokens(text: String): Int {
         if (text.isEmpty()) return 0
-        // Google 官方建议：100 tokens ~= 60-80 words.
-        // 简单粗暴估算：长度 / 3
-        return (text.length / 3) + 50 // 加上 Prompt 的基础消耗
+        return (text.length / 2.5).toInt() + 100 // 加上 Prompt 的基础消耗
     }
 
-    private fun recordUsage(tokens: Int) {
+    // --- 内部辅助方法 ---
+
+    private fun isModelAvailable(model: AiModel, tokens: Int): Boolean {
         val now = System.currentTimeMillis()
-        requestTimestamps.add(now)
-        tokenUsageHistory.add(now to tokens)
+
+        // 1. 检查 RPM (每分钟请求数)
+        val requests = requestHistory[model.name] ?: LinkedList()
+        if (requests.size >= model.maxRpm) return false
+
+        // 2. 检查 TPM (每分钟 Token 数)
+        val usageList = tokenHistory[model.name] ?: LinkedList()
+        val currentTpm = usageList.sumOf { it.second }
+
+        if (currentTpm + tokens >= model.maxTpm) return false
+
+        return true
     }
 
     private fun cleanOldRecords() {
         val now = System.currentTimeMillis()
         val expiry = now - WINDOW_MS
 
-        // 移除过期的请求记录
-        while (requestTimestamps.isNotEmpty() && requestTimestamps.peek()!! < expiry) {
-            requestTimestamps.poll()
-        }
+        AiModel.values().forEach { model ->
+            // 清理请求记录
+            val requests = requestHistory[model.name]
+            while (requests != null && requests.isNotEmpty() && requests.peek()!! < expiry) {
+                requests.poll()
+            }
 
-        // 移除过期的 Token 记录
-        while (tokenUsageHistory.isNotEmpty() && tokenUsageHistory.peek()!!.first < expiry) {
-            tokenUsageHistory.poll()
+            // 清理 Token 记录
+            val tokens = tokenHistory[model.name]
+            while (tokens != null && tokens.isNotEmpty() && tokens.peek()!!.first < expiry) {
+                tokens.poll()
+            }
         }
     }
 }
