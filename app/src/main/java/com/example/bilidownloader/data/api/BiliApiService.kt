@@ -157,6 +157,41 @@ interface BiliApiService {
         @Field("type") type: Int = 1,      // 1=视频
         @Field("plat") plat: Int = 1       // 1=Web
     ): BiliResponse<ReplyResultData>
+
+    // ===========================
+    // 【Ver 2.4.0 新增】推荐与上报接口
+    // ===========================
+
+    /**
+     * 获取 Web 端首页推荐视频
+     * 需要 WBI 签名
+     */
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/"
+    )
+    @GET("x/web-interface/wbi/index/top/feed/rcmd")
+    suspend fun getRecommendFeed(
+        @Query("wts") wts: Long,      // 时间戳
+        @Query("w_rid") wRid: String, // 签名
+        @Query("ps") ps: Int = 10     // 请求数量 (默认10条)
+    ): RecommendResponse
+
+    /**
+     * 上报观看进度 (标记已读，影响推荐算法)
+     */
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/"
+    )
+    @FormUrlEncoded
+    @POST("x/v2/history/report")
+    suspend fun reportHistory(
+        @Field("aid") aid: Long,
+        @Field("cid") cid: Long,
+        @Field("progress") progress: Int = 0, // 0 表示刚点开
+        @Field("csrf") csrf: String
+    ): BiliResponse<Any>
 }
 
 // 对应评论接口返回的 data 字段
