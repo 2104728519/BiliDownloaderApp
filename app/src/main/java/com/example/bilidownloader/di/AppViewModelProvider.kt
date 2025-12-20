@@ -5,6 +5,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.bilidownloader.MyApplication
+import com.example.bilidownloader.ui.viewmodel.AiCommentViewModel // 【新增】
 import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
 import com.example.bilidownloader.ui.viewmodel.MainViewModel
 
@@ -15,7 +16,7 @@ import com.example.bilidownloader.ui.viewmodel.MainViewModel
 object AppViewModelProvider {
     val Factory = viewModelFactory {
 
-        // 1. 配置 MainViewModel 的创建方式
+        // 1. 配置 MainViewModel
         initializer {
             val container = bilidownloaderApplication().container
             MainViewModel(
@@ -25,7 +26,6 @@ object AppViewModelProvider {
                 analyzeVideoUseCase = container.analyzeVideoUseCase,
                 downloadVideoUseCase = container.downloadVideoUseCase,
                 prepareTranscribeUseCase = container.prepareTranscribeUseCase,
-                // 【新增】注入获取字幕用例
                 getSubtitleUseCase = container.getSubtitleUseCase
             )
         }
@@ -34,6 +34,19 @@ object AppViewModelProvider {
         initializer {
             AudioPickerViewModel(
                 application = bilidownloaderApplication(),
+            )
+        }
+
+        // =========================================================
+        // 3. 【新增】注册 AiCommentViewModel
+        // =========================================================
+        initializer {
+            val container = bilidownloaderApplication().container
+            AiCommentViewModel(
+                analyzeVideoUseCase = container.analyzeVideoUseCase,
+                getSubtitleUseCase = container.getSubtitleUseCase,
+                generateCommentUseCase = container.generateCommentUseCase,
+                postCommentUseCase = container.postCommentUseCase
             )
         }
     }

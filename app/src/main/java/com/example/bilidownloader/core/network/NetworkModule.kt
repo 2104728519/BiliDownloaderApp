@@ -6,6 +6,7 @@ import com.example.bilidownloader.core.common.Constants
 import com.example.bilidownloader.data.api.AliyunApiService
 import com.example.bilidownloader.data.api.BiliApiService
 import com.example.bilidownloader.data.api.ConsoleApiService
+import com.example.bilidownloader.data.api.GeminiApiService // 【新增】引用 Gemini 接口
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -39,7 +40,7 @@ object NetworkModule {
     // 通用日志拦截器
     private val loggingInterceptor by lazy {
         HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC // 调试时可改为 BODY
+            level = HttpLoggingInterceptor.Level.BASIC
         }
     }
 
@@ -47,16 +48,16 @@ object NetworkModule {
     private val biliOkHttpClient: OkHttpClient by lazy {
         val ctx = getContext()
         OkHttpClient.Builder()
-            .addInterceptor(BiliHeaderInterceptor())        // 添加通用头
-            .addInterceptor(AuthInterceptor(ctx))           // 注入 Cookie
-            .addInterceptor(ReceivedCookieInterceptor(ctx))   // 保存 Cookie
-            .addInterceptor(loggingInterceptor)             // 日志
+            .addInterceptor(BiliHeaderInterceptor())
+            .addInterceptor(AuthInterceptor(ctx))
+            .addInterceptor(ReceivedCookieInterceptor(ctx))
+            .addInterceptor(loggingInterceptor)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()
     }
 
-    // 阿里云/通用 Client (纯净版)
+    // 阿里云/通用/Gemini Client (纯净版)
     private val commonOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
@@ -66,15 +67,13 @@ object NetworkModule {
     }
 
     /**
-     * 【新增】下载专用 Client
-     * 1. 不添加日志拦截器，避免大文件二进制流刷屏导致内存溢出 (OOM)
-     * 2. 设置极长的读取超时，防止大文件下载过程中由于网络波动中断
+     * 下载专用 Client
      */
     val downloadClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(60, TimeUnit.SECONDS) // 连接超时 1分钟
-            .readTimeout(120, TimeUnit.SECONDS)   // 读取超时 2分钟 (之后由业务层重试机制处理)
-            .retryOnConnectionFailure(true)       // 允许失败重连
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
     }
 
@@ -104,7 +103,16 @@ object NetworkModule {
     private val consoleRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(Constants.ALIYUN_CONSOLE_BASE_URL)
-            .client(commonOkHttpClient) // 控制台的 Cookie 是通过参数手动传的
+            .client(commonOkHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
+
+    // 【新增】Gemini AI Retrofit
+    private val geminiRetrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://generativelanguage.googleapis.com/") // Gemini 官方 Base URL
+            .client(commonOkHttpClient) // 复用通用 Client
             .addConverterFactory(GsonConverterFactory.create())
             .build()
     }
@@ -123,5 +131,10 @@ object NetworkModule {
 
     val consoleService: ConsoleApiService by lazy {
         consoleRetrofit.create(ConsoleApiService::class.java)
+    }
+
+    // 【新增】对外暴露 Gemini Service
+    val geminiService: GeminiApiService by lazy {
+        geminiRetrofit.create(GeminiApiService::class.java)
     }
 }

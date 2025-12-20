@@ -37,6 +37,8 @@ android {
         buildConfigField("String", "OSS_KEY_ID", "\"${localProperties.getProperty("OSS_ACCESS_KEY_ID") ?: ""}\"")
         buildConfigField("String", "OSS_KEY_SECRET", "\"${localProperties.getProperty("OSS_ACCESS_KEY_SECRET") ?: ""}\"")
 
+        buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties.getProperty("GEMINI_API_KEY") ?: ""}\"")
+
         ndk {
             // 只打包 arm64-v8a 架构的 .so 文件
             abiFilters.add("arm64-v8a")

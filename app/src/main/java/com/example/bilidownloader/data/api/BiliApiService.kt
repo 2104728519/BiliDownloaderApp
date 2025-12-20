@@ -11,8 +11,7 @@ import retrofit2.http.FormUrlEncoded
 import retrofit2.http.POST
 
 // =========================================================
-// 【新增】UserInfo 数据模型 (通常放在 data.model 包下)
-// 这里为了方便，直接放在顶部
+// UserInfo 数据模型
 // =========================================================
 
 data class UserInfoResponse(
@@ -30,13 +29,11 @@ data class UserInfoData(
 // =========================================================
 
 /**
- * 这里是“点菜单”
- * 我们在这里列出所有需要向 B 站请求的功能
+ * B站 API 接口定义
  */
 interface BiliApiService {
 
-    // 1. 获取导航信息 (为了拿到 WBI 签名用的密钥)
-    // 就像打电话问前台：今天的加密暗号是什么？
+    // 1. 获取导航信息 (用于 WBI 签名)
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -44,8 +41,7 @@ interface BiliApiService {
     @GET("x/web-interface/nav")
     fun getNavInfo(): Call<BiliResponse<NavData>>
 
-    // 【新增】获取当前登录用户的信息 (使用 Nav 接口，它同时包含用户数据)
-    // 注意：这里的返回类型是 UserInfoResponse，因为我们要直接处理它的 code
+    // 获取当前登录用户的信息
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -54,7 +50,7 @@ interface BiliApiService {
     fun getSelfInfo(): Call<UserInfoResponse>
 
 
-    // 2. 【替换】获取视频详细信息 (标题、封面、CID等)
+    // 2. 获取视频详细信息
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -62,7 +58,7 @@ interface BiliApiService {
     @GET("x/web-interface/view")
     fun getVideoView(@Query("bvid") bvid: String): Call<BiliResponse<VideoDetail>>
 
-    // 3. 获取视频播放地址 (最关键的一步)
+    // 3. 获取视频播放地址
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -71,8 +67,7 @@ interface BiliApiService {
     fun getPlayUrl(@QueryMap params: Map<String, String>): Call<BiliResponse<PlayData>>
 
     /**
-     * 【新增】获取视频 AI 摘要和字幕
-     * 必须携带 Wbi 签名参数 (w_rid, wts)
+     * 获取视频 AI 摘要和字幕
      */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -82,18 +77,16 @@ interface BiliApiService {
     suspend fun getConclusion(
         @Query("bvid") bvid: String,
         @Query("cid") cid: Long,
-        @Query("up_mid") upMid: Long?, // 建议携带，增加成功率
-        @Query("wts") wts: Long,      // 当前时间戳
-        @Query("w_rid") wRid: String  // Wbi 签名计算结果
+        @Query("up_mid") upMid: Long?,
+        @Query("wts") wts: Long,
+        @Query("w_rid") wRid: String
     ): ConclusionResponse
-
-    // ---
 
     // ===========================
     // 登录/退出相关接口
     // ===========================
 
-    // 1. 申请极验参数 (获取 gt 和 challenge)
+    // 1. 申请极验参数
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -143,4 +136,31 @@ interface BiliApiService {
     fun logout(
         @Field("biliCSRF") csrf: String
     ): Call<BiliResponse<Any>>
+
+    // ===========================
+    // 【Ver 2.3.0 新增】评论相关接口
+    // ===========================
+
+    /**
+     * 发送评论
+     */
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/"
+    )
+    @FormUrlEncoded
+    @POST("x/v2/reply/add")
+    suspend fun addReply(
+        @Field("oid") oid: Long,           // 视频 aid
+        @Field("message") message: String, // 评论内容
+        @Field("csrf") csrf: String,       // bili_jct
+        @Field("type") type: Int = 1,      // 1=视频
+        @Field("plat") plat: Int = 1       // 1=Web
+    ): BiliResponse<ReplyResultData>
 }
+
+// 对应评论接口返回的 data 字段
+data class ReplyResultData(
+    val rpid: Long,
+    val success_toast: String?
+)

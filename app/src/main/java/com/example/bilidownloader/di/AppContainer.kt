@@ -5,6 +5,8 @@ import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.database.AppDatabase
 import com.example.bilidownloader.data.repository.*
 import com.example.bilidownloader.domain.*
+import com.example.bilidownloader.domain.usecase.GenerateCommentUseCase // 【新增】
+import com.example.bilidownloader.domain.usecase.PostCommentUseCase     // 【新增】
 
 /**
  * 依赖注入容器接口
@@ -14,14 +16,18 @@ interface AppContainer {
     val historyRepository: HistoryRepository
     val userRepository: UserRepository
     val downloadRepository: DownloadRepository
-    val subtitleRepository: SubtitleRepository // 新增
+    val subtitleRepository: SubtitleRepository
     val mediaRepository: MediaRepository
+    val commentRepository: CommentRepository // 【新增】
+    val llmRepository: LlmRepository         // 【新增】
 
     // UseCases
     val analyzeVideoUseCase: AnalyzeVideoUseCase
     val downloadVideoUseCase: DownloadVideoUseCase
-    val getSubtitleUseCase: GetSubtitleUseCase // 新增
+    val getSubtitleUseCase: GetSubtitleUseCase
     val prepareTranscribeUseCase: PrepareTranscribeUseCase
+    val generateCommentUseCase: GenerateCommentUseCase // 【新增】
+    val postCommentUseCase: PostCommentUseCase         // 【新增】
 }
 
 /**
@@ -38,7 +44,7 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     private val biliApiService = NetworkModule.biliService
 
     // =========================================================
-    // 3. Repository 初始化
+    // 3. Repository 初始化 (使用 lazy 延迟加载)
     // =========================================================
 
     override val historyRepository by lazy {
@@ -61,6 +67,15 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         MediaRepository(context)
     }
 
+    // 【新增】注册新的 Repository
+    override val commentRepository by lazy {
+        CommentRepository(context)
+    }
+
+    override val llmRepository by lazy {
+        LlmRepository()
+    }
+
     // =========================================================
     // 4. UseCase 初始化
     // =========================================================
@@ -77,8 +92,16 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         GetSubtitleUseCase(subtitleRepository, biliApiService)
     }
 
-    // 【修正】这里补上了 downloadRepository 参数
     override val prepareTranscribeUseCase by lazy {
         PrepareTranscribeUseCase(context, downloadRepository)
+    }
+
+    // 【新增】注册新的 UseCase
+    override val generateCommentUseCase by lazy {
+        GenerateCommentUseCase(llmRepository)
+    }
+
+    override val postCommentUseCase by lazy {
+        PostCommentUseCase(commentRepository)
     }
 }

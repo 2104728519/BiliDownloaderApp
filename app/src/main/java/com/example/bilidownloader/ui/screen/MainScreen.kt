@@ -26,8 +26,6 @@ fun MainScreen() {
 
     Scaffold(
         bottomBar = {
-            // 这里通常可以加逻辑：只有在首页和工具页才显示底部栏，
-            // 但为了保持原有结构简单，暂不隐藏
             NavigationBar {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
@@ -69,7 +67,6 @@ fun MainScreen() {
             composable("home") {
                 HomeScreen(
                     onNavigateToTranscribe = { path ->
-                        // 收到路径，跳转到转写页
                         val encodedPath = URLEncoder.encode(path, "UTF-8")
                         navController.navigate("transcription/$encodedPath")
                     },
@@ -90,7 +87,16 @@ fun MainScreen() {
             composable("tools") {
                 ToolsScreen(
                     onNavigateToAudioCrop = { navController.navigate("audio_picker") },
-                    onNavigateToTranscription = { navController.navigate("audio_picker_transcribe") }
+                    onNavigateToTranscription = { navController.navigate("audio_picker_transcribe") },
+                    // [新增] 导航至 AI 评论助手
+                    onNavigateToAiComment = { navController.navigate("ai_comment") }
+                )
+            }
+
+            // [新增] AI 评论助手页路由
+            composable("ai_comment") {
+                AiCommentScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
 
@@ -98,7 +104,7 @@ fun MainScreen() {
             composable("audio_picker") {
                 val context = LocalContext.current
                 AudioPickerScreen(
-                    onBack = { navController.popBackStack() }, // 【新增】返回处理
+                    onBack = { navController.popBackStack() },
                     onAudioSelected = { uri ->
                         val tempName = "temp_crop_${System.currentTimeMillis()}.mp3"
                         val cacheFile = StorageHelper.copyUriToCache(context, uri, tempName)
@@ -128,7 +134,7 @@ fun MainScreen() {
             composable("audio_picker_transcribe") {
                 val context = LocalContext.current
                 AudioPickerScreen(
-                    onBack = { navController.popBackStack() }, // 【新增】返回处理
+                    onBack = { navController.popBackStack() },
                     onAudioSelected = { uri ->
                         val tempName = "trans_input_${System.currentTimeMillis()}.mp3"
                         val cacheFile = StorageHelper.copyUriToCache(context, uri, tempName)
