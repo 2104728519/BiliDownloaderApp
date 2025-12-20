@@ -5,7 +5,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.bilidownloader.MyApplication
-import com.example.bilidownloader.ui.viewmodel.AiCommentViewModel // 【新增】
+import com.example.bilidownloader.ui.viewmodel.AiCommentViewModel
 import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
 import com.example.bilidownloader.ui.viewmodel.MainViewModel
 
@@ -38,7 +38,7 @@ object AppViewModelProvider {
         }
 
         // =========================================================
-        // 3. 【新增】注册 AiCommentViewModel
+        // 3. 【修改】注册 AiCommentViewModel 并注入推荐相关依赖
         // =========================================================
         initializer {
             val container = bilidownloaderApplication().container
@@ -46,7 +46,10 @@ object AppViewModelProvider {
                 analyzeVideoUseCase = container.analyzeVideoUseCase,
                 getSubtitleUseCase = container.getSubtitleUseCase,
                 generateCommentUseCase = container.generateCommentUseCase,
-                postCommentUseCase = container.postCommentUseCase
+                postCommentUseCase = container.postCommentUseCase,
+                // 【Ver 2.4.0 新增】
+                getRecommendedVideosUseCase = container.getRecommendedVideosUseCase,
+                recommendRepository = container.recommendRepository
             )
         }
     }
