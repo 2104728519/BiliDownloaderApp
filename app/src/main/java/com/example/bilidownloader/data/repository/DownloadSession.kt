@@ -1,22 +1,25 @@
+
 package com.example.bilidownloader.data.repository
 
 import com.example.bilidownloader.core.common.Resource
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * 全局下载会话管理器
- * Service 负责生产数据，ViewModel 负责消费数据
  */
 object DownloadSession {
-    // SharedFlow 支持多个观察者（比如首页和详情页同时看进度）
-    // replay = 1 确保 UI 重建（比如旋转屏幕）后能立即获得最新进度
-    private val _downloadState = MutableSharedFlow<Resource<String>>(replay = 1)
+    // 【修复】将 replay 改为 0，防止 "状态倒灌" (新页面打开时收到旧的 Loading 状态)
+    // extraBufferCapacity = 1 配合 DROP_OLDEST 确保 Service 发射数据时永远不会被挂起
+    private val _downloadState = MutableSharedFlow<Resource<String>>(
+        replay = 0,
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val downloadState = _downloadState.asSharedFlow()
 
     suspend fun updateState(resource: Resource<String>) {
         _downloadState.emit(resource)
     }
-
-    // 如果以后要做多任务，可以在这里加一个 Map<Bvid, Flow>
 }

@@ -148,7 +148,6 @@ class DownloadService : Service() {
             downloadJob?.cancel()
             downloadJob = null
             updateNotification("下载已暂停", 0, false)
-            // 【修复】在协程中调用 suspend 函数
             serviceScope.launch {
                 DownloadSession.updateState(Resource.Error("PAUSED"))
             }
@@ -160,7 +159,6 @@ class DownloadService : Service() {
             downloadJob?.cancel()
             downloadJob = null
         }
-        // 【修复】在协程中调用 suspend 函数
         serviceScope.launch {
             DownloadSession.updateState(Resource.Error("CANCELED"))
         }
@@ -197,7 +195,20 @@ class DownloadService : Service() {
         }
     }
 
+    // =========================================================
+    // 修改后的 onDestroy
+    // =========================================================
     override fun onDestroy() {
+        // 如果服务销毁时下载还在运行（通常是系统清理或闪退）
+        // 强制发送一个结束信号，防止 UI 无限转圈
+        if (downloadJob?.isActive == true) {
+            // 使用 GlobalScope 确保在服务销毁过程中能发出去
+            @OptIn(DelicateCoroutinesApi::class)
+            GlobalScope.launch {
+                DownloadSession.updateState(Resource.Error("CANCELED"))
+            }
+        }
+
         super.onDestroy()
         serviceScope.cancel()
         if (::wakeLock.isInitialized && wakeLock.isHeld) {
