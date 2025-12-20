@@ -102,9 +102,119 @@ fun HomeScreen(
         else if (state !is MainState.Idle) viewModel.reset()
     }
 
-    // --- 弹窗逻辑 ---
-    // 账号弹窗省略 (保持之前代码一致)
+    // =========================================================
+    // 1. 账号列表弹窗 (修复回来)
+    // =========================================================
+    if (showAccountDialog) {
+        Dialog(onDismissRequest = { showAccountDialog = false }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("账号管理", style = MaterialTheme.typography.titleLarge)
+                    Spacer(modifier = Modifier.height(16.dp))
 
+                    if (userList.isEmpty()) {
+                        Text("暂无账号，请添加", color = MaterialTheme.colorScheme.secondary)
+                    } else {
+                        LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
+                            items(userList) { user ->
+                                AccountItem(
+                                    user = user,
+                                    isCurrent = user.mid == currentUser?.mid,
+                                    onClick = { if (user.mid != currentUser?.mid) viewModel.switchAccount(user) },
+                                    onLongClick = {
+                                        clipboardManager.setText(AnnotatedString(user.sessData))
+                                        Toast.makeText(context, "Cookie 已复制", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onDelete = { viewModel.logoutAndRemove(user) }
+                                )
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextButton(onClick = {
+                            showManualCookieInput = true
+                            showAccountDialog = false
+                        }) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("添加账号")
+                        }
+
+                        if (currentUser != null) {
+                            TextButton(
+                                onClick = {
+                                    viewModel.quitToGuestMode()
+                                    showAccountDialog = false
+                                },
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Text("切换游客")
+                            }
+                        }
+                    }
+                    TextButton(onClick = { showAccountDialog = false }, modifier = Modifier.align(Alignment.End)) {
+                        Text("关闭")
+                    }
+                }
+            }
+        }
+    }
+
+    // =========================================================
+    // 2. 手动输入 Cookie 弹窗 (修复回来)
+    // =========================================================
+    if (showManualCookieInput) {
+        var cookieText by remember { mutableStateOf("") }
+        Dialog(onDismissRequest = { showManualCookieInput = false }) {
+            Card(modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("添加新账号", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = cookieText,
+                        onValueChange = { cookieText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("粘贴 SESSDATA=xxx;") },
+                        minLines = 3
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = {
+                            showManualCookieInput = false
+                            onNavigateToLogin()
+                        }) {
+                            Text("短信登录")
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        TextButton(onClick = { showManualCookieInput = false }) { Text("取消") }
+                        Button(onClick = {
+                            viewModel.addOrUpdateAccount(cookieText)
+                            showManualCookieInput = false
+                            showAccountDialog = true
+                        }, enabled = cookieText.isNotBlank()) {
+                            Text("添加")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // =========================================================
+    // 【新增】 AI 字幕弹窗
+    // =========================================================
     if (showSubtitleDialog && state is MainState.ChoiceSelect) {
         SubtitleDialog(
             currentState = state as MainState.ChoiceSelect,
@@ -264,7 +374,7 @@ fun HomeScreen(
 }
 
 // =========================================================
-// 【核心修改】独立的字幕弹窗组件
+// 字幕弹窗组件
 // =========================================================
 @Composable
 fun SubtitleDialog(
@@ -294,16 +404,12 @@ fun SubtitleDialog(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
-                // =========================================================
-                // 1. 标题栏 (已应用修改)
-                // =========================================================
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // 逻辑：如果有数据，显示返回箭头；如果没有，显示默认图标
                         if (currentState.subtitleData != null) {
                             IconButton(onClick = { viewModel.clearSubtitleState() }) {
                                 Icon(Icons.Default.ArrowBack, contentDescription = "重选")
@@ -326,7 +432,6 @@ fun SubtitleDialog(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
-                // 2. 内容区域
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     if (currentState.isSubtitleLoading) {
                         CircularProgressIndicator()
@@ -355,7 +460,6 @@ fun SubtitleDialog(
                     }
                 }
 
-                // 3. 底部工具栏
                 if (currentState.subtitleData != null) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
