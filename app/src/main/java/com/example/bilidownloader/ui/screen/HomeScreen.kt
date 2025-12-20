@@ -103,7 +103,7 @@ fun HomeScreen(
     }
 
     // =========================================================
-    // 1. 账号列表弹窗 (修复回来)
+    // 1. 账号列表弹窗
     // =========================================================
     if (showAccountDialog) {
         Dialog(onDismissRequest = { showAccountDialog = false }) {
@@ -128,8 +128,18 @@ fun HomeScreen(
                                     isCurrent = user.mid == currentUser?.mid,
                                     onClick = { if (user.mid != currentUser?.mid) viewModel.switchAccount(user) },
                                     onLongClick = {
-                                        clipboardManager.setText(AnnotatedString(user.sessData))
-                                        Toast.makeText(context, "Cookie 已复制", Toast.LENGTH_SHORT).show()
+                                        // 【关键修改】智能拼接完整 Cookie
+                                        var cookieStr = user.sessData.trim()
+                                        // 确保以分号结尾，方便拼接
+                                        if (!cookieStr.endsWith(";")) cookieStr += ";"
+
+                                        // 如果原始字符串里没有 bili_jct，但数据库里存了，就补上去
+                                        if (!cookieStr.contains("bili_jct") && user.biliJct.isNotEmpty()) {
+                                            cookieStr += " bili_jct=${user.biliJct};"
+                                        }
+
+                                        clipboardManager.setText(AnnotatedString(cookieStr))
+                                        Toast.makeText(context, "完整 Cookie 已复制 (含 CSRF)", Toast.LENGTH_SHORT).show()
                                     },
                                     onDelete = { viewModel.logoutAndRemove(user) }
                                 )
@@ -171,7 +181,7 @@ fun HomeScreen(
     }
 
     // =========================================================
-    // 2. 手动输入 Cookie 弹窗 (修复回来)
+    // 2. 手动输入 Cookie 弹窗
     // =========================================================
     if (showManualCookieInput) {
         var cookieText by remember { mutableStateOf("") }
@@ -186,7 +196,7 @@ fun HomeScreen(
                         value = cookieText,
                         onValueChange = { cookieText = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("粘贴 SESSDATA=xxx;") },
+                        placeholder = { Text("粘贴 SESSDATA=xxx; bili_jct=yyy;") },
                         minLines = 3
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -213,7 +223,7 @@ fun HomeScreen(
     }
 
     // =========================================================
-    // 【新增】 AI 字幕弹窗
+    // 3. AI 字幕弹窗
     // =========================================================
     if (showSubtitleDialog && state is MainState.ChoiceSelect) {
         SubtitleDialog(
@@ -373,9 +383,8 @@ fun HomeScreen(
     }
 }
 
-// =========================================================
-// 字幕弹窗组件
-// =========================================================
+// ... (SubtitleDialog, QualitySelector 等保持不变)
+
 @Composable
 fun SubtitleDialog(
     currentState: MainState.ChoiceSelect,
@@ -484,7 +493,6 @@ fun SubtitleDialog(
     }
 }
 
-// 辅助组件
 fun Modifier.scale(scale: Float): Modifier = this.then(Modifier.graphicsLayer(scaleX = scale, scaleY = scale))
 
 @OptIn(ExperimentalFoundationApi::class)

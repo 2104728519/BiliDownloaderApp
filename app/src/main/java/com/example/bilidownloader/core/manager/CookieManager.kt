@@ -7,8 +7,6 @@ import com.example.bilidownloader.core.common.Constants
 /**
  * Cookie 管理器
  * 负责 Cookie 的持久化存储、解析与提取
- *
- * TODO: 未来阶段将改为依赖注入，不再直接依赖 Context
  */
 object CookieManager {
 
@@ -17,11 +15,34 @@ object CookieManager {
     }
 
     /**
+     * 【新增】从原始 Cookie 字符串中解析出键值对
+     * 无论用户粘贴的是 "key=value" 还是 "key1=val1; key2=val2" 都能搞定
+     * 该方法不依赖 Context，可用于纯字符串处理
+     */
+    fun parseCookieStringToMap(cookieString: String): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        if (cookieString.isBlank()) return map
+
+        val items = cookieString.split(";")
+        for (item in items) {
+            val trimItem = item.trim()
+            if (trimItem.isEmpty()) continue
+
+            val parts = trimItem.split("=", limit = 2)
+            if (parts.size == 2) {
+                val key = parts[0].trim()
+                val value = parts[1].trim()
+                if (key.isNotEmpty()) {
+                    map[key] = value
+                }
+            }
+        }
+        return map
+    }
+
+    /**
      * 保存并合并 Cookie 列表
      * 会自动解析 Set-Cookie 字符串，提取键值对并与现有 Cookie 合并
-     *
-     * @param context 上下文
-     * @param cookieStrings API 返回的 Set-Cookie 列表
      */
     fun saveCookies(context: Context, cookieStrings: List<String>) {
         if (cookieStrings.isEmpty()) return
@@ -74,7 +95,6 @@ object CookieManager {
 
     /**
      * 获取 Cookie 中指定字段的值
-     * @param key Cookie 键名 (如 "bili_jct", "SESSDATA")
      */
     fun getCookieValue(context: Context, key: String): String? {
         return getCookieMap(context)[key]
@@ -88,7 +108,7 @@ object CookieManager {
     }
 
     /**
-     * 清空 B 站相关 Cookie (本地退出登录)
+     * 清空 B 站相关 Cookie
      */
     fun clearCookies(context: Context) {
         getPrefs(context).edit().remove(Constants.KEY_BILI_FULL_COOKIE).apply()
@@ -118,15 +138,9 @@ object CookieManager {
     // ========================================================================
 
     private fun getCookieMap(context: Context): Map<String, String> {
-        val cookieString = getPrefs(context).getString(Constants.KEY_BILI_FULL_COOKIE, "") ?: return emptyMap()
-        val map = mutableMapOf<String, String>()
-        cookieString.split(";").forEach {
-            val parts = it.split("=", limit = 2)
-            if (parts.size == 2) {
-                map[parts[0].trim()] = parts[1].trim()
-            }
-        }
-        return map
+        val cookieString = getPrefs(context).getString(Constants.KEY_BILI_FULL_COOKIE, "") ?: ""
+        // 直接复用新添加的解析方法
+        return parseCookieStringToMap(cookieString)
     }
 
     private fun isStandardAttribute(part: String): Boolean {

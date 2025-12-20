@@ -109,7 +109,7 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val activeUser = userRepository.getCurrentUser()
             if (activeUser != null) {
-                CookieManager.saveSessData(getApplication(), activeUser.sessData)
+                CookieManager.saveCookies(getApplication(), listOf(activeUser.sessData))
                 _currentUser.value = activeUser
                 _isUserLoggedIn.value = true
             } else {
@@ -122,31 +122,84 @@ class MainViewModel(
 
     fun syncCookieToUserDB() {
         viewModelScope.launch(Dispatchers.IO) {
-            val localCookie = CookieManager.getSessDataValue(getApplication())
-            if (localCookie.isNotEmpty()) addOrUpdateAccount(localCookie)
+            val localCookie = CookieManager.getCookie(getApplication())
+            if (!localCookie.isNullOrEmpty()) addOrUpdateAccount(localCookie)
         }
     }
 
+    /**
+     * 【深度优化版】添加或更新账号
+     * 强行提取 bili_jct (CSRF) 并存入数据库，确保自动化评论功能可用
+     */
     fun addOrUpdateAccount(cookieInput: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val rawCookie = if (cookieInput.contains("=")) cookieInput else "SESSDATA=$cookieInput"
-                CookieManager.saveSessData(getApplication(), rawCookie)
+                // 1. 拟人化处理：如果用户只粘贴了 SESSDATA 的值，我们手动给它补全键名
+                val rawCookie = if (cookieInput.contains("=")) {
+                    cookieInput
+                } else {
+                    "SESSDATA=$cookieInput"
+                }
+
+                // 2. 解析出关键字段用于逻辑校验
+                val cookieMap = CookieManager.parseCookieStringToMap(rawCookie)
+                val inputSess = cookieMap["SESSDATA"]
+                val inputCsrf = cookieMap["bili_jct"] ?: "" // 尝试从用户输入中直接提取
+
+                if (inputSess.isNullOrEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(getApplication(), "无效的 Cookie (缺少 SESSDATA)", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                // 3. 预存入 Cookie 管理器 (Retrofit 拦截器会读取此处的 Cookie 发起 getSelfInfo)
+                CookieManager.saveCookies(getApplication(), listOf(rawCookie))
+
+                // 4. 发起网络验证，检查该 Cookie 是否真的有效
                 val response = NetworkModule.biliService.getSelfInfo().execute()
                 val userData = response.body()?.data
+
                 if (userData != null && userData.isLogin) {
-                    val csrf = CookieManager.getCookieValue(getApplication(), "bili_jct") ?: ""
+                    // 5. 【关键】确定最终的 CSRF (bili_jct)
+                    // 规则：优先用输入的，如果没有，尝试从刚才 saveCookies 后的合并池里回读
+                    val finalCsrf = if (inputCsrf.isNotEmpty()) {
+                        inputCsrf
+                    } else {
+                        CookieManager.getCookieValue(getApplication(), "bili_jct") ?: ""
+                    }
+
                     val newUser = UserEntity(
-                        mid = userData.mid, name = userData.uname, face = userData.face,
-                        sessData = rawCookie, biliJct = csrf, isLogin = true
+                        mid = userData.mid,
+                        name = userData.uname,
+                        face = userData.face,
+                        sessData = rawCookie, // 存储完整原始串，以便下次恢复环境
+                        biliJct = finalCsrf,  // 显式存入 CSRF 字段，供 API 调用使用
+                        isLogin = true
                     )
+
+                    // 6. 持久化到数据库
                     userRepository.clearAllLoginStatus()
                     userRepository.insertUser(newUser)
+
                     _currentUser.value = newUser
                     _isUserLoggedIn.value = true
-                    withContext(Dispatchers.Main) { Toast.makeText(getApplication(), "登录成功", Toast.LENGTH_SHORT).show() }
+
+                    withContext(Dispatchers.Main) {
+                        val msg = if (finalCsrf.isNotEmpty()) "登录成功！(已捕获 CSRF)" else "登录成功 (注意：未捕获 CSRF，部分功能受限)"
+                        Toast.makeText(getApplication(), msg, Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(getApplication(), "验证失败：Cookie 可能已过期", Toast.LENGTH_SHORT).show()
+                    }
+                    restoreSession() // 验证失败，恢复到上一个有效账号或游客状态
                 }
             } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "登录异常: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
                 restoreSession()
             }
         }
@@ -156,7 +209,7 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             userRepository.clearAllLoginStatus()
             userRepository.setLoginStatus(user.mid)
-            CookieManager.saveSessData(getApplication(), user.sessData)
+            CookieManager.saveCookies(getApplication(), listOf(user.sessData))
             _currentUser.value = user
             _isUserLoggedIn.value = true
         }
@@ -208,7 +261,7 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 3. 下载控制
+    // 3. 下载控制 (代码保持不变...)
     // ========================================================================
     fun startDownload(audioOnly: Boolean) {
         val vOpt = savedVideoOption
@@ -251,7 +304,7 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 4. 字幕与辅助功能
+    // 4. 字幕与辅助功能 (保持不变...)
     // ========================================================================
 
     fun fetchSubtitle() {
@@ -282,7 +335,6 @@ class MainViewModel(
                     )
                 }
                 is Resource.Error -> {
-                    // 失败时不设置 subtitleData，显示 ERROR 前缀以便 UI 弹出 Toast
                     _state.value = safeState.copy(
                         isSubtitleLoading = false,
                         subtitleData = null,
@@ -294,10 +346,6 @@ class MainViewModel(
         }
     }
 
-    /**
-     * 【新增】重置字幕状态
-     * 用于用户想从“预览模式”返回到“未获取状态”（例如想改用阿里云备用方案）
-     */
     fun clearSubtitleState() {
         val currentState = _state.value
         if (currentState is MainState.ChoiceSelect) {
