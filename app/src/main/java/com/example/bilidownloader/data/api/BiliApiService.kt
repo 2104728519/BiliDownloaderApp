@@ -2,13 +2,7 @@ package com.example.bilidownloader.data.api
 
 import com.example.bilidownloader.data.model.*
 import retrofit2.Call
-import retrofit2.http.GET
-import retrofit2.http.Headers
-import retrofit2.http.Query
-import retrofit2.http.QueryMap
-import retrofit2.http.Field
-import retrofit2.http.FormUrlEncoded
-import retrofit2.http.POST
+import retrofit2.http.*
 
 // =========================================================
 // UserInfo 数据模型
@@ -67,14 +61,12 @@ interface BiliApiService {
     fun getPlayUrl(@QueryMap params: Map<String, String>): Call<BiliResponse<PlayData>>
 
     /**
-     * 获取视频 AI 摘要和字幕
+     * 获取视频 AI 摘要和字幕 (高风险接口，易被风控)
      */
-    @Headers(
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer: https://www.bilibili.com/"
-    )
     @GET("x/web-interface/view/conclusion/get")
     suspend fun getConclusion(
+        @Header("User-Agent") userAgent: String,
+        @Header("Referer") referer: String,
         @Query("bvid") bvid: String,
         @Query("cid") cid: Long,
         @Query("up_mid") upMid: Long?,
@@ -82,11 +74,37 @@ interface BiliApiService {
         @Query("w_rid") wRid: String
     ): ConclusionResponse
 
+    // =========================================================
+    // 【Ver 2.5.0 新增】播放器字幕兜底方案
+    // =========================================================
+
+    /**
+     * 获取播放器配置 (含字幕列表)
+     * 这是一个核心高频接口，模拟播放器行为，极少被风控
+     */
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/"
+    )
+    @GET("x/player/wbi/v2")
+    suspend fun getPlayerV2(
+        @Query("aid") aid: Long, // 内部使用的是 aid (即 oid)
+        @Query("cid") cid: Long,
+        @Query("wts") wts: Long,
+        @Query("w_rid") wRid: String
+    ): PlayerV2Response
+
+    /**
+     * 下载字幕 JSON 文件
+     * 因为 URL 指向 B 站 CDN (subtitle.akamaized.net 等)，所以使用 @Url 动态传入
+     */
+    @GET
+    suspend fun downloadSubtitleJson(@Url url: String): RawSubtitleJson
+
     // ===========================
-    // 登录/退出相关接口
+    // 登录/退出相关接口 (保持不变)
     // ===========================
 
-    // 1. 申请极验参数
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -94,7 +112,6 @@ interface BiliApiService {
     @GET("https://passport.bilibili.com/x/passport-login/captcha?source=main_web")
     fun getCaptcha(): Call<BiliResponse<CaptchaResult>>
 
-    // 2. 发送短信验证码
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -111,7 +128,6 @@ interface BiliApiService {
         @Field("source") source: String = "main_web"
     ): Call<BiliResponse<SmsSendResponse>>
 
-    // 3. 验证短信码并登录
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -126,7 +142,6 @@ interface BiliApiService {
         @Field("source") source: String = "main_web"
     ): Call<BiliResponse<LoginResponseData>>
 
-    // 4. 退出登录
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -138,12 +153,9 @@ interface BiliApiService {
     ): Call<BiliResponse<Any>>
 
     // ===========================
-    // 【Ver 2.3.0 新增】评论相关接口
+    // 评论相关接口 (保持不变)
     // ===========================
 
-    /**
-     * 发送评论
-     */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -151,35 +163,28 @@ interface BiliApiService {
     @FormUrlEncoded
     @POST("x/v2/reply/add")
     suspend fun addReply(
-        @Field("oid") oid: Long,           // 视频 aid
-        @Field("message") message: String, // 评论内容
-        @Field("csrf") csrf: String,       // bili_jct
-        @Field("type") type: Int = 1,      // 1=视频
-        @Field("plat") plat: Int = 1       // 1=Web
+        @Field("oid") oid: Long,
+        @Field("message") message: String,
+        @Field("csrf") csrf: String,
+        @Field("type") type: Int = 1,
+        @Field("plat") plat: Int = 1
     ): BiliResponse<ReplyResultData>
 
     // ===========================
-    // 【Ver 2.4.0 新增】推荐与上报接口
+    // 推荐与上报接口 (保持不变)
     // ===========================
 
-    /**
-     * 获取 Web 端首页推荐视频
-     * 需要 WBI 签名
-     */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
     )
     @GET("x/web-interface/wbi/index/top/feed/rcmd")
     suspend fun getRecommendFeed(
-        @Query("wts") wts: Long,      // 时间戳
-        @Query("w_rid") wRid: String, // 签名
-        @Query("ps") ps: Int = 10     // 请求数量 (默认10条)
+        @Query("wts") wts: Long,
+        @Query("w_rid") wRid: String,
+        @Query("ps") ps: Int = 10
     ): RecommendResponse
 
-    /**
-     * 上报观看进度 (标记已读，影响推荐算法)
-     */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -189,12 +194,11 @@ interface BiliApiService {
     suspend fun reportHistory(
         @Field("aid") aid: Long,
         @Field("cid") cid: Long,
-        @Field("progress") progress: Int = 0, // 0 表示刚点开
+        @Field("progress") progress: Int = 0,
         @Field("csrf") csrf: String
     ): BiliResponse<Any>
 }
 
-// 对应评论接口返回的 data 字段
 data class ReplyResultData(
     val rpid: Long,
     val success_toast: String?
