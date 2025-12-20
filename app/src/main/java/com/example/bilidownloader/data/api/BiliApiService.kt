@@ -55,7 +55,6 @@ interface BiliApiService {
 
 
     // 2. 【替换】获取视频详细信息 (标题、封面、CID等)
-    // 这个接口比原来的 pagelist 提供了更多的视频信息。
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -64,14 +63,29 @@ interface BiliApiService {
     fun getVideoView(@Query("bvid") bvid: String): Call<BiliResponse<VideoDetail>>
 
     // 3. 获取视频播放地址 (最关键的一步)
-    // 就像拿着刚才算好的加密纸条去仓库提货
-    // @QueryMap 表示我们要把一大堆参数（cid, qn, w_rid...）一次性传进去
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
         "Referer: https://www.bilibili.com/"
     )
     @GET("x/player/wbi/playurl")
     fun getPlayUrl(@QueryMap params: Map<String, String>): Call<BiliResponse<PlayData>>
+
+    /**
+     * 【新增】获取视频 AI 摘要和字幕
+     * 必须携带 Wbi 签名参数 (w_rid, wts)
+     */
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/"
+    )
+    @GET("x/web-interface/view/conclusion/get")
+    suspend fun getConclusion(
+        @Query("bvid") bvid: String,
+        @Query("cid") cid: Long,
+        @Query("up_mid") upMid: Long?, // 建议携带，增加成功率
+        @Query("wts") wts: Long,      // 当前时间戳
+        @Query("w_rid") wRid: String  // Wbi 签名计算结果
+    ): ConclusionResponse
 
     // ---
 
@@ -80,7 +94,6 @@ interface BiliApiService {
     // ===========================
 
     // 1. 申请极验参数 (获取 gt 和 challenge)
-    // 增加 User-Agent 头，防止被 B 站防火墙拦截
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -116,12 +129,11 @@ interface BiliApiService {
         @Field("cid") cid: Int,
         @Field("tel") tel: Long,
         @Field("code") code: Int,
-        @Field("captcha_key") captchaKey: String, // 注意这里变量名是 captchaKey
+        @Field("captcha_key") captchaKey: String,
         @Field("source") source: String = "main_web"
     ): Call<BiliResponse<LoginResponseData>>
 
     // 4. 退出登录
-    // 注意：必须带上 biliCSRF 参数，否则报错 -111
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -130,5 +142,5 @@ interface BiliApiService {
     @POST("https://passport.bilibili.com/login/exit/v2")
     fun logout(
         @Field("biliCSRF") csrf: String
-    ): Call<BiliResponse<Any>> // 返回数据不重要，只要 code=0
+    ): Call<BiliResponse<Any>>
 }

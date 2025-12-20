@@ -24,8 +24,9 @@ object AppViewModelProvider {
                 userRepository = container.userRepository,
                 analyzeVideoUseCase = container.analyzeVideoUseCase,
                 downloadVideoUseCase = container.downloadVideoUseCase,
-                // 【新增】注入转写准备用例
-                prepareTranscribeUseCase = container.prepareTranscribeUseCase
+                prepareTranscribeUseCase = container.prepareTranscribeUseCase,
+                // 【新增】注入获取字幕用例
+                getSubtitleUseCase = container.getSubtitleUseCase
             )
         }
 

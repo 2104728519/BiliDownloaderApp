@@ -1,75 +1,84 @@
 package com.example.bilidownloader.di
 
 import android.content.Context
+import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.database.AppDatabase
-import com.example.bilidownloader.data.repository.DownloadRepository
-import com.example.bilidownloader.data.repository.HistoryRepository
-import com.example.bilidownloader.data.repository.MediaRepository
-import com.example.bilidownloader.data.repository.UserRepository
-import com.example.bilidownloader.domain.AnalyzeVideoUseCase
-import com.example.bilidownloader.domain.DownloadVideoUseCase
-import com.example.bilidownloader.domain.PrepareTranscribeUseCase // 【新增】导入
+import com.example.bilidownloader.data.repository.*
+import com.example.bilidownloader.domain.*
 
 /**
  * 依赖注入容器接口
  */
 interface AppContainer {
+    // Repositories
     val historyRepository: HistoryRepository
     val userRepository: UserRepository
-    val mediaRepository: MediaRepository
     val downloadRepository: DownloadRepository
+    val subtitleRepository: SubtitleRepository // 新增
+    val mediaRepository: MediaRepository
 
-    // 解析视频业务逻辑用例
+    // UseCases
     val analyzeVideoUseCase: AnalyzeVideoUseCase
-
-    // 下载视频用例
     val downloadVideoUseCase: DownloadVideoUseCase
-
-    // 【新增】转写准备用例
+    val getSubtitleUseCase: GetSubtitleUseCase // 新增
     val prepareTranscribeUseCase: PrepareTranscribeUseCase
 }
 
 /**
- * 具体的容器实现
+ * 容器的具体实现
  */
 class DefaultAppContainer(private val context: Context) : AppContainer {
 
-    // 1. 数据库单例 (懒加载)
-    private val database: AppDatabase by lazy {
+    // 1. 数据库实例
+    private val database by lazy {
         AppDatabase.getDatabase(context)
     }
 
-    // 2. 仓库单例 (Repositories)
-    override val historyRepository: HistoryRepository by lazy {
+    // 2. API Service
+    private val biliApiService = NetworkModule.biliService
+
+    // =========================================================
+    // 3. Repository 初始化
+    // =========================================================
+
+    override val historyRepository by lazy {
         HistoryRepository(database.historyDao())
     }
 
-    override val userRepository: UserRepository by lazy {
+    override val userRepository by lazy {
         UserRepository(database.userDao())
     }
 
-    override val mediaRepository: MediaRepository by lazy {
-        MediaRepository(context)
-    }
-
-    override val downloadRepository: DownloadRepository by lazy {
+    override val downloadRepository by lazy {
         DownloadRepository()
     }
 
-    // 3. 业务用例 (UseCases)
+    override val subtitleRepository by lazy {
+        SubtitleRepository(biliApiService)
+    }
 
-    // 解析视频用例
-    override val analyzeVideoUseCase: AnalyzeVideoUseCase by lazy {
+    override val mediaRepository by lazy {
+        MediaRepository(context)
+    }
+
+    // =========================================================
+    // 4. UseCase 初始化
+    // =========================================================
+
+    override val analyzeVideoUseCase by lazy {
         AnalyzeVideoUseCase(historyRepository)
     }
 
-    // 下载视频用例
-    override val downloadVideoUseCase: DownloadVideoUseCase by lazy {
+    override val downloadVideoUseCase by lazy {
         DownloadVideoUseCase(context, downloadRepository)
     }
 
-    // 【新增】转写准备用例
-    override val prepareTranscribeUseCase: PrepareTranscribeUseCase by lazy {
+    override val getSubtitleUseCase by lazy {
+        GetSubtitleUseCase(subtitleRepository, biliApiService)
+    }
+
+    // 【修正】这里补上了 downloadRepository 参数
+    override val prepareTranscribeUseCase by lazy {
         PrepareTranscribeUseCase(context, downloadRepository)
     }
 }
