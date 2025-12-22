@@ -14,7 +14,7 @@ import com.example.bilidownloader.MyApplication
 import com.example.bilidownloader.R
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.data.repository.DownloadSession
-import com.example.bilidownloader.domain.DownloadVideoUseCase
+import com.example.bilidownloader.domain.usecase.DownloadVideoUseCase
 import com.example.bilidownloader.ui.state.FormatOption
 import com.google.gson.Gson
 import kotlinx.coroutines.*

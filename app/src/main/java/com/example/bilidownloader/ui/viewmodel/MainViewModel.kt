@@ -16,10 +16,10 @@ import com.example.bilidownloader.data.model.VideoDetail
 import com.example.bilidownloader.data.repository.DownloadSession
 import com.example.bilidownloader.data.repository.HistoryRepository
 import com.example.bilidownloader.data.repository.UserRepository
-import com.example.bilidownloader.domain.AnalyzeVideoUseCase
-import com.example.bilidownloader.domain.DownloadVideoUseCase
-import com.example.bilidownloader.domain.GetSubtitleUseCase
-import com.example.bilidownloader.domain.PrepareTranscribeUseCase
+import com.example.bilidownloader.domain.usecase.AnalyzeVideoUseCase
+import com.example.bilidownloader.domain.usecase.DownloadVideoUseCase
+import com.example.bilidownloader.domain.usecase.GetSubtitleUseCase
+import com.example.bilidownloader.domain.usecase.PrepareTranscribeUseCase
 import com.example.bilidownloader.service.DownloadService
 import com.example.bilidownloader.ui.state.FormatOption
 import com.example.bilidownloader.ui.state.MainState

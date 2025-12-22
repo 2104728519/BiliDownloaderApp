@@ -8,8 +8,8 @@ import com.example.bilidownloader.data.model.CandidateVideo
 import com.example.bilidownloader.data.model.ConclusionData
 import com.example.bilidownloader.data.repository.RecommendRepository
 import com.example.bilidownloader.data.repository.StyleRepository // [新增]
-import com.example.bilidownloader.domain.AnalyzeVideoUseCase
-import com.example.bilidownloader.domain.GetSubtitleUseCase
+import com.example.bilidownloader.domain.usecase.AnalyzeVideoUseCase
+import com.example.bilidownloader.domain.usecase.GetSubtitleUseCase
 import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.CommentStyle
 import com.example.bilidownloader.domain.usecase.GenerateCommentUseCase

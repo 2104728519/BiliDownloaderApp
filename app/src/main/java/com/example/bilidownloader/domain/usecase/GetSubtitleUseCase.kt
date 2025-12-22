@@ -1,4 +1,4 @@
-package com.example.bilidownloader.domain
+package com.example.bilidownloader.domain.usecase
 
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.data.api.BiliApiService

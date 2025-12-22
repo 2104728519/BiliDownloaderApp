@@ -71,7 +71,7 @@ object NetworkModule {
         OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
             .connectTimeout(60, TimeUnit.SECONDS) // 连接超时 1 分钟
-            .readTimeout(300, TimeUnit.SECONDS)   // [关键] 读取超时 5 分钟
+            .readTimeout(600, TimeUnit.SECONDS)   // [关键] 读取超时 5 分钟
             .writeTimeout(60, TimeUnit.SECONDS)   // 写入超时 1 分钟
             .build()
     }
@@ -115,7 +115,7 @@ object NetworkModule {
             .build()
     }
 
-    // [修改] Gemini AI Retrofit：换用 llmOkHttpClient
+    // Gemini AI Retrofit：换用 llmOkHttpClient
     private val geminiRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl("https://generativelanguage.googleapis.com/")

@@ -5,9 +5,13 @@ import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.database.AppDatabase
 import com.example.bilidownloader.data.repository.*
 import com.example.bilidownloader.domain.*
+import com.example.bilidownloader.domain.usecase.AnalyzeVideoUseCase
+import com.example.bilidownloader.domain.usecase.DownloadVideoUseCase
 import com.example.bilidownloader.domain.usecase.GenerateCommentUseCase
 import com.example.bilidownloader.domain.usecase.PostCommentUseCase
 import com.example.bilidownloader.domain.usecase.GetRecommendedVideosUseCase
+import com.example.bilidownloader.domain.usecase.GetSubtitleUseCase
+import com.example.bilidownloader.domain.usecase.PrepareTranscribeUseCase
 
 /**
  * 依赖注入容器接口
