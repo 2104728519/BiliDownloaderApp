@@ -16,8 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.bilidownloader.ui.screen.*
-import com.example.bilidownloader.utils.StorageHelper
+import com.example.bilidownloader.core.util.StorageHelper
 import java.net.URLEncoder
 
 @Composable

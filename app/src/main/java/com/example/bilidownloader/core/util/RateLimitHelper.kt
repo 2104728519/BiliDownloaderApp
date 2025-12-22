@@ -1,4 +1,4 @@
-package com.example.bilidownloader.utils
+package com.example.bilidownloader.core.util
 
 import java.util.LinkedList
 import java.util.concurrent.ConcurrentHashMap

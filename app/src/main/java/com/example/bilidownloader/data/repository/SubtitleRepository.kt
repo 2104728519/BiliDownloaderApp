@@ -4,7 +4,7 @@ import android.util.Log
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.data.api.BiliApiService
 import com.example.bilidownloader.data.model.*
-import com.example.bilidownloader.utils.BiliSigner
+import com.example.bilidownloader.core.util.BiliSigner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.TreeMap

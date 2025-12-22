@@ -1,4 +1,4 @@
-package com.example.bilidownloader.utils
+package com.example.bilidownloader.core.util
 
 import io.microshow.rxffmpeg.RxFFmpegInvoke
 import io.microshow.rxffmpeg.RxFFmpegSubscriber

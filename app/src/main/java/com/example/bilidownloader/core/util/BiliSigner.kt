@@ -1,4 +1,4 @@
-package com.example.bilidownloader.utils
+package com.example.bilidownloader.core.util
 
 import java.net.URLEncoder
 import java.security.MessageDigest

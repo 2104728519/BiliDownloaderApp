@@ -5,9 +5,9 @@ import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.repository.DownloadRepository
 import com.example.bilidownloader.ui.state.FormatOption
-import com.example.bilidownloader.utils.BiliSigner
-import com.example.bilidownloader.utils.FFmpegHelper
-import com.example.bilidownloader.utils.StorageHelper
+import com.example.bilidownloader.core.util.BiliSigner
+import com.example.bilidownloader.core.util.FFmpegHelper
+import com.example.bilidownloader.core.util.StorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow

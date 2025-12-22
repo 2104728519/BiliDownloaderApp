@@ -1,4 +1,4 @@
-package com.example.bilidownloader.utils
+package com.example.bilidownloader.core.util
 
 import com.example.bilidownloader.core.network.NetworkModule // <--- 1. 引入 NetworkModule
 import com.example.bilidownloader.data.model.*

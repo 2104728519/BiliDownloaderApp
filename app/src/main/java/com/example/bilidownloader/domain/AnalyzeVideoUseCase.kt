@@ -5,8 +5,8 @@ import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.database.HistoryEntity
 import com.example.bilidownloader.data.repository.HistoryRepository
 import com.example.bilidownloader.ui.state.FormatOption
-import com.example.bilidownloader.utils.BiliSigner
-import com.example.bilidownloader.utils.LinkUtils
+import com.example.bilidownloader.core.util.BiliSigner
+import com.example.bilidownloader.core.util.LinkUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow

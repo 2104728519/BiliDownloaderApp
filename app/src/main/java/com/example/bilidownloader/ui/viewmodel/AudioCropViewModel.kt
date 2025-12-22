@@ -5,8 +5,8 @@ import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bilidownloader.utils.FFmpegHelper
-import com.example.bilidownloader.utils.StorageHelper
+import com.example.bilidownloader.core.util.FFmpegHelper
+import com.example.bilidownloader.core.util.StorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay

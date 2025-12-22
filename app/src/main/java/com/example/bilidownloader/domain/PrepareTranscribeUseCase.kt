@@ -4,7 +4,7 @@ import android.content.Context
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.repository.DownloadRepository
-import com.example.bilidownloader.utils.BiliSigner
+import com.example.bilidownloader.core.util.BiliSigner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow

@@ -7,8 +7,8 @@ import com.example.bilidownloader.data.model.TranscriptionInput
 import com.example.bilidownloader.data.model.TranscriptionRequest
 import com.example.bilidownloader.core.manager.CookieManager // 【新增】导入 CookieManager
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.utils.ConsoleScraper // 【新增】导入爬取工具
-import com.example.bilidownloader.utils.OssManager
+import com.example.bilidownloader.core.util.ConsoleScraper // 【新增】导入爬取工具
+import com.example.bilidownloader.core.util.OssManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow

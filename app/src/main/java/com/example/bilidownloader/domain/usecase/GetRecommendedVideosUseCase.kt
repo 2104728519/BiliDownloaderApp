@@ -3,10 +3,9 @@ package com.example.bilidownloader.domain.usecase
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.data.api.BiliApiService
 import com.example.bilidownloader.data.model.CandidateVideo
-import com.example.bilidownloader.data.model.RecommendItem
 import com.example.bilidownloader.data.repository.RecommendRepository
 import com.example.bilidownloader.data.repository.SubtitleRepository
-import com.example.bilidownloader.utils.BiliSigner
+import com.example.bilidownloader.core.util.BiliSigner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.TreeMap

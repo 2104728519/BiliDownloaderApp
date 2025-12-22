@@ -1,4 +1,4 @@
-package com.example.bilidownloader.utils
+package com.example.bilidownloader.core.util
 
 import android.content.Context
 import com.alibaba.sdk.android.oss.ClientConfiguration

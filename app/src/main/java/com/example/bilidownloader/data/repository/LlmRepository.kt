@@ -6,7 +6,7 @@ import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.model.GeminiContent
 import com.example.bilidownloader.data.model.GeminiPart
 import com.example.bilidownloader.data.model.GeminiRequest
-import com.example.bilidownloader.utils.RateLimitHelper
+import com.example.bilidownloader.core.util.RateLimitHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
