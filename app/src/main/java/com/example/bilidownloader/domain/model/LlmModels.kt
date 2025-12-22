@@ -34,14 +34,14 @@ data class AiModelConfig(
         val GEMMA_27B = AiModelConfig("gemma-3-27b-it", "Gemma 3 (27B)", AiProvider.GOOGLE, 8192)
         val GEMINI_FLASH = AiModelConfig("gemini-2.5-flash", "Gemini 2.5 Flash", AiProvider.GOOGLE, 1000000)
         val GEMINI_LITE = AiModelConfig("gemini-2.5-flash-lite", "Gemini 2.5 Lite", AiProvider.GOOGLE, 1000000)
-        val GEMINI_PRO = AiModelConfig("gemini-2.0-pro-exp-02-05", "Gemini 2.0 Pro", AiProvider.GOOGLE, 2000000)
+
 
         // --- Future Models (预埋) ---
         // val DEEPSEEK_V3 = AiModelConfig("deepseek-chat", "DeepSeek V3", AiProvider.DEEPSEEK, 64000)
 
         // 获取所有可用选项
         fun getAllModels(): List<AiModelConfig> {
-            return listOf(SMART_AUTO, GEMMA_27B, GEMINI_FLASH, GEMINI_LITE, GEMINI_PRO)
+            return listOf(SMART_AUTO, GEMMA_27B, GEMINI_FLASH, GEMINI_LITE)
         }
     }
 }

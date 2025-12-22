@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.bilidownloader.di.AppViewModelProvider
+import com.example.bilidownloader.domain.model.AiModelConfig // 新增
 import com.example.bilidownloader.domain.model.CommentStyle
 import com.example.bilidownloader.ui.viewmodel.AiCommentLoadingState
 import com.example.bilidownloader.ui.viewmodel.AiCommentViewModel
@@ -78,14 +79,22 @@ fun AiCommentScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // ===========================
-            // 1. [关键修复] 自动化控制台
+            // 0. [新增] 模型选择器
+            // ===========================
+            ModelSelector(
+                currentModel = state.currentModel,
+                onModelSelected = { viewModel.updateModel(it) },
+                enabled = !state.isAutoRunning // 自动化运行时锁定模型
+            )
+
+            // ===========================
+            // 1. 自动化控制台
             // ===========================
             AutomationControlCard(
                 isAutoRunning = state.isAutoRunning,
                 currentStyle = state.selectedStyle,
                 logs = state.autoLogs,
                 onStart = { style -> viewModel.toggleAutomation(style) },
-                // [修复] 移除 !!，直接传 state.selectedStyle 即可，哪怕是 null 也没关系
                 onStop = { viewModel.toggleAutomation(state.selectedStyle) }
             )
 
@@ -176,7 +185,6 @@ fun AiCommentScreen(
             // ===========================
             // 3. 手动操作区
             // ===========================
-
             OutlinedTextField(
                 value = urlInput,
                 onValueChange = { urlInput = it },
@@ -235,7 +243,7 @@ fun AiCommentScreen(
             if (state.isSubtitleReady && !state.isAutoRunning) {
                 Text("手动选择评论风格", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CommentStyle.entries.forEach { style -> // 修改：推荐使用 .entries
+                    CommentStyle.entries.forEach { style ->
                         FilterChip(
                             selected = state.selectedStyle == style && state.loadingState != AiCommentLoadingState.GeneratingComment,
                             onClick = { viewModel.generateComment(style) },
@@ -280,6 +288,65 @@ fun AiCommentScreen(
 }
 
 /**
+ * [新增] 模型选择器组件
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ModelSelector(
+    currentModel: AiModelConfig,
+    onModelSelected: (AiModelConfig) -> Unit,
+    enabled: Boolean
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val models = remember { AiModelConfig.getAllModels() }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { if (enabled) expanded = !expanded },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        OutlinedTextField(
+            value = "${currentModel.name} [${currentModel.provider.label}]",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("AI 模型选择") },
+            leadingIcon = { Icon(Icons.Default.SmartToy, null) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(),
+            enabled = enabled
+        )
+
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            models.forEach { model ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(model.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (model.isSmartMode) "自动选择最省钱/最高效的模型" else "厂商: ${model.provider.label}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    },
+                    onClick = {
+                        onModelSelected(model)
+                        expanded = false
+                    },
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
  * 独立的自动化控制卡片组件
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -289,7 +356,7 @@ fun AutomationControlCard(
     currentStyle: CommentStyle?,
     logs: List<String>,
     onStart: (CommentStyle) -> Unit,
-    onStop: () -> Unit // [修复] 参数逻辑已经在 AiCommentScreen 闭包内处理
+    onStop: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(
