@@ -7,6 +7,7 @@ import com.example.bilidownloader.core.util.RateLimitHelper
 import com.example.bilidownloader.data.model.GeminiContent
 import com.example.bilidownloader.data.model.GeminiPart
 import com.example.bilidownloader.data.model.GeminiRequest
+import com.example.bilidownloader.data.model.GeminiConfig // [新增引用]
 import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.AiProvider
 import kotlinx.coroutines.Dispatchers
@@ -36,9 +37,14 @@ class GoogleLlmService : ILlmService {
                 modelConfig.id
             }
 
-            // 2. 准备请求
+            // 2. 准备请求 【修改点：显式传入配置】
             val request = GeminiRequest(
-                contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt))))
+                contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
+                // 强制指定配置：拉满输出上限，并调整随机性
+                generationConfig = GeminiConfig(
+                    temperature = 1.0f,      // 适度提高创造性，使评论不那么机械
+                    maxOutputTokens = 8192   // 提升至 8K 上限，防止内容截断
+                )
             )
 
             // 3. 发送请求
@@ -49,19 +55,17 @@ class GoogleLlmService : ILlmService {
             )
 
             // 4. 成功后记录配额消耗
-            val usedModelEnum = RateLimitHelper.AiModel.values().find { it.apiName == targetModelId }
+            val usedModelEnum = RateLimitHelper.AiModel.entries.find { it.apiName == targetModelId }
             if (usedModelEnum != null) {
                 RateLimitHelper.recordUsage(usedModelEnum, RateLimitHelper.estimateTokens(prompt))
             }
 
-            // 5. 解析结果并添加调试日志
+            // 5. 解析结果并监控停止原因
             val candidates = response.candidates
             if (!candidates.isNullOrEmpty()) {
                 val candidate = candidates[0]
 
-                // [修改] 打印停止原因日志
-                // 如果显示 SAFETY，说明内容包含敏感词被和谐
-                // 如果显示 MAX_TOKENS，说明内容超长被截断
+                // 打印调试日志：监控拦截原因或截断原因
                 println("GoogleAI StopReason: ${candidate.finishReason}")
 
                 val text = candidate.content?.parts?.get(0)?.text
