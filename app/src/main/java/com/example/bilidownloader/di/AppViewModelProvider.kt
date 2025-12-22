@@ -38,7 +38,7 @@ object AppViewModelProvider {
         }
 
         // =========================================================
-        // 3. 【修改】注册 AiCommentViewModel 并注入推荐相关依赖
+        // 3. 【修改】注册 AiCommentViewModel
         // =========================================================
         initializer {
             val container = bilidownloaderApplication().container
@@ -47,9 +47,10 @@ object AppViewModelProvider {
                 getSubtitleUseCase = container.getSubtitleUseCase,
                 generateCommentUseCase = container.generateCommentUseCase,
                 postCommentUseCase = container.postCommentUseCase,
-                // 【Ver 2.4.0 新增】
                 getRecommendedVideosUseCase = container.getRecommendedVideosUseCase,
-                recommendRepository = container.recommendRepository
+                recommendRepository = container.recommendRepository,
+                // [新增] 注入风格仓库，实现自定义风格的持久化
+                styleRepository = container.styleRepository
             )
         }
     }

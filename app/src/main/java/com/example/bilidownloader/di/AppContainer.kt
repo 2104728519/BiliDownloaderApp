@@ -7,7 +7,7 @@ import com.example.bilidownloader.data.repository.*
 import com.example.bilidownloader.domain.*
 import com.example.bilidownloader.domain.usecase.GenerateCommentUseCase
 import com.example.bilidownloader.domain.usecase.PostCommentUseCase
-import com.example.bilidownloader.domain.usecase.GetRecommendedVideosUseCase // 【新增】
+import com.example.bilidownloader.domain.usecase.GetRecommendedVideosUseCase
 
 /**
  * 依赖注入容器接口
@@ -21,7 +21,8 @@ interface AppContainer {
     val mediaRepository: MediaRepository
     val commentRepository: CommentRepository
     val llmRepository: LlmRepository
-    val recommendRepository: RecommendRepository // 【新增】
+    val recommendRepository: RecommendRepository
+    val styleRepository: StyleRepository // [新增] 自定义风格仓库
 
     // UseCases
     val analyzeVideoUseCase: AnalyzeVideoUseCase
@@ -30,7 +31,7 @@ interface AppContainer {
     val prepareTranscribeUseCase: PrepareTranscribeUseCase
     val generateCommentUseCase: GenerateCommentUseCase
     val postCommentUseCase: PostCommentUseCase
-    val getRecommendedVideosUseCase: GetRecommendedVideosUseCase // 【新增】
+    val getRecommendedVideosUseCase: GetRecommendedVideosUseCase
 }
 
 /**
@@ -83,11 +84,16 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         LlmRepository()
     }
 
-    /**
-     * 【Ver 2.4.0 新增】初始化推荐仓库
-     */
     override val recommendRepository by lazy {
         RecommendRepository(context, commentedVideoDao)
+    }
+
+    /**
+     * [新增] 初始化自定义风格仓库
+     * 传入数据库中注册的 customStyleDao
+     */
+    override val styleRepository by lazy {
+        StyleRepository(database.customStyleDao())
     }
 
     // =========================================================
@@ -118,10 +124,6 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         PostCommentUseCase(commentRepository)
     }
 
-    /**
-     * 【Ver 2.4.0 新增】初始化获取推荐视频用例
-     * 整合了推荐流、字幕获取和 API 访问
-     */
     override val getRecommendedVideosUseCase by lazy {
         GetRecommendedVideosUseCase(
             recommendRepository,

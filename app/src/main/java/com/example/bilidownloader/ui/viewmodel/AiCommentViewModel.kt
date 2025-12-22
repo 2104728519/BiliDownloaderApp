@@ -7,9 +7,10 @@ import com.example.bilidownloader.core.util.RateLimitHelper
 import com.example.bilidownloader.data.model.CandidateVideo
 import com.example.bilidownloader.data.model.ConclusionData
 import com.example.bilidownloader.data.repository.RecommendRepository
+import com.example.bilidownloader.data.repository.StyleRepository // [新增]
 import com.example.bilidownloader.domain.AnalyzeVideoUseCase
 import com.example.bilidownloader.domain.GetSubtitleUseCase
-import com.example.bilidownloader.domain.model.AiModelConfig // 新增
+import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.CommentStyle
 import com.example.bilidownloader.domain.usecase.GenerateCommentUseCase
 import com.example.bilidownloader.domain.usecase.GetRecommendedVideosUseCase
@@ -45,7 +46,10 @@ data class AiCommentUiState(
     val generatedContent: String = "",
     val selectedStyle: CommentStyle? = null,
 
-    // [新增] 当前选择的模型 (默认为智能托管)
+    // [新增] 可用风格列表 (包含内置和用户自定义)
+    val availableStyles: List<CommentStyle> = emptyList(),
+
+    // 当前选择的模型
     val currentModel: AiModelConfig = AiModelConfig.SMART_AUTO,
 
     // 自动化相关
@@ -60,49 +64,79 @@ class AiCommentViewModel(
     private val generateCommentUseCase: GenerateCommentUseCase,
     private val postCommentUseCase: PostCommentUseCase,
     private val getRecommendedVideosUseCase: GetRecommendedVideosUseCase,
-    private val recommendRepository: RecommendRepository
+    private val recommendRepository: RecommendRepository,
+    private val styleRepository: StyleRepository // [新增] 注入仓库
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AiCommentUiState())
     val uiState = _uiState.asStateFlow()
     private var automationJob: Job? = null
 
-    // [新增] 切换模型
+    init {
+        // [新增] 启动时监听风格列表变化，自动合并内置风格和数据库风格
+        viewModelScope.launch {
+            styleRepository.allStyles.collect { styles ->
+                _uiState.update { it.copy(availableStyles = styles) }
+            }
+        }
+    }
+
+    // [新增] 添加自定义风格
+    fun addCustomStyle(label: String, prompt: String) {
+        viewModelScope.launch {
+            styleRepository.addStyle(label, prompt)
+            _uiState.update { it.copy(successMessage = "已添加风格: $label") }
+        }
+    }
+
+    // [新增] 删除自定义风格
+    fun deleteCustomStyle(style: CommentStyle) {
+        viewModelScope.launch {
+            styleRepository.deleteStyle(style)
+            // 如果当前选中的是被删除的那个，重置选中状态
+            if (_uiState.value.selectedStyle == style) {
+                _uiState.update { it.copy(selectedStyle = null) }
+            }
+            _uiState.update { it.copy(successMessage = "已删除风格: ${style.label}") }
+        }
+    }
+
+    // 切换模型
     fun updateModel(model: AiModelConfig) {
         if (!_uiState.value.isAutoRunning) {
             _uiState.update { it.copy(currentModel = model) }
         }
     }
 
-    // ... (toggleAutomation, startAutomation, stopAutomation, appendLog 保持不变) ...
-    // 为了节省篇幅，这里简写，请保持原有的自动化控制逻辑
     fun toggleAutomation(style: CommentStyle?) {
         if (_uiState.value.isAutoRunning) stopAutomation() else if (style != null) startAutomation(style)
     }
+
     private fun startAutomation(style: CommentStyle) {
         _uiState.update { it.copy(isAutoRunning = true, selectedStyle = style, autoLogs = listOf(">>> 启动自动化 | 风格: ${style.label} | 模型: ${_uiState.value.currentModel.name}")) }
         automationJob = viewModelScope.launch { startAutomationLoop(style) }
     }
+
     private fun stopAutomation() {
         automationJob?.cancel()
         automationJob = null
         _uiState.update { it.copy(isAutoRunning = false, loadingState = AiCommentLoadingState.Idle) }
         appendLog(">>> 自动化任务已停止")
     }
+
     private fun appendLog(msg: String) {
         val timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         _uiState.update { it.copy(autoLogs = (it.autoLogs + "[$timestamp] $msg").takeLast(50)) }
     }
 
     // ========================================================================
-    // 自动化循环 (startAutomationLoop)
+    // 自动化循环
     // ========================================================================
     private suspend fun startAutomationLoop(style: CommentStyle) {
         val localQueue = ArrayDeque<CandidateVideo>()
 
         while (currentCoroutineContext().isActive) {
             try {
-                // 1. 获取列表
                 if (localQueue.isEmpty()) {
                     appendLog("获取推荐列表...")
                     _uiState.update { it.copy(loadingState = AiCommentLoadingState.FetchingRecommendations) }
@@ -117,12 +151,10 @@ class AiCommentViewModel(
                     }
                 }
 
-                // 2. 取视频
                 val currentVideo = localQueue.removeFirst()
                 applyCandidate(currentVideo)
                 appendLog("处理: ${currentVideo.info.title}")
 
-                // 3. 获取字幕
                 _uiState.update { it.copy(loadingState = AiCommentLoadingState.FetchingSubtitle) }
                 delay(Random.nextLong(1000, 3000))
 
@@ -137,17 +169,13 @@ class AiCommentViewModel(
                 val validSubtitleData = subResult.data
                 _uiState.update { it.copy(subtitleData = validSubtitleData, isSubtitleReady = true, loadingState = AiCommentLoadingState.Idle) }
 
-                // 4. [修改] 估算 Token (仅用于日志显示，实际配额检查已移交 Repository)
-                // 只有在智能模式下，RateLimitHelper 才起作用；如果是强制模型，这里只是个参考
                 val summaryText = validSubtitleData.modelResult?.summary ?: ""
                 val subtitleText = validSubtitleData.modelResult?.subtitle?.firstOrNull()?.partSubtitle?.joinToString { it.content } ?: ""
                 val estimatedTokens = RateLimitHelper.estimateTokens(summaryText + subtitleText)
                 appendLog("内容长度: $estimatedTokens tokens")
 
-                // 5. [修改] 生成评论 (传入当前选中的模型配置)
                 _uiState.update { it.copy(loadingState = AiCommentLoadingState.GeneratingComment) }
 
-                // >>> 这里传入 state.currentModel <<<
                 val genResult = generateCommentUseCase(validSubtitleData, style, _uiState.value.currentModel)
 
                 if (genResult is Resource.Error) {
@@ -159,7 +187,6 @@ class AiCommentViewModel(
                 val commentText = genResult.data!!
                 _uiState.update { it.copy(generatedContent = commentText) }
 
-                // 6. 模拟阅读 & 发送
                 val readingTime = Random.nextLong(5000, 10000)
                 appendLog("阅读中 (${readingTime/1000}s)...")
                 delay(readingTime)
@@ -188,20 +215,13 @@ class AiCommentViewModel(
         }
     }
 
-    // ... (fetchRecommendations, applyCandidate, analyzeVideo, fetchSubtitle, updateContent, sendComment, clearMessages) ...
-    // 这些方法逻辑不变，唯一需要注意的是 generateComment (手动生成) 也要传 model
-
-    // [修改] 手动生成评论
     fun generateComment(style: CommentStyle) {
         val state = _uiState.value
         if (state.subtitleData == null || (state.loadingState != AiCommentLoadingState.Idle && !state.isAutoRunning)) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(loadingState = AiCommentLoadingState.GeneratingComment, selectedStyle = style, error = null) }
-
-            // >>> 传入 state.currentModel <<<
             val result = generateCommentUseCase(state.subtitleData, style, state.currentModel)
-
             when (result) {
                 is Resource.Success -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, generatedContent = result.data ?: "") }
                 is Resource.Error -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, error = result.message) }
@@ -210,7 +230,6 @@ class AiCommentViewModel(
         }
     }
 
-    // (其余方法复用之前的即可，如果你需要完整文件请告诉我，这里省略以聚焦变更)
     fun fetchRecommendations() {
         if (_uiState.value.loadingState != AiCommentLoadingState.Idle && !_uiState.value.isAutoRunning) return
         viewModelScope.launch {
@@ -223,10 +242,12 @@ class AiCommentViewModel(
             }
         }
     }
+
     fun applyCandidate(candidate: CandidateVideo) {
         _uiState.update { it.copy(videoTitle = candidate.info.title, videoCover = candidate.info.pic, bvid = candidate.info.bvid, oid = candidate.info.id, cid = candidate.cid, upMid = candidate.info.owner?.mid ?: 0L, subtitleData = candidate.subtitleData, isSubtitleReady = candidate.subtitleData != null, error = null, generatedContent = "", selectedStyle = if (it.isAutoRunning) it.selectedStyle else null) }
         if (candidate.subtitleData == null && !_uiState.value.isAutoRunning) fetchSubtitle()
     }
+
     fun analyzeVideo(url: String) {
         if (url.isBlank() || (_uiState.value.loadingState != AiCommentLoadingState.Idle && !_uiState.value.isAutoRunning)) return
         viewModelScope.launch {
@@ -239,6 +260,7 @@ class AiCommentViewModel(
             }
         }
     }
+
     private fun fetchSubtitle() {
         val state = _uiState.value
         if (state.bvid.isEmpty() || state.cid == 0L) return
@@ -252,7 +274,9 @@ class AiCommentViewModel(
             }
         }
     }
+
     fun updateContent(text: String) { _uiState.update { it.copy(generatedContent = text) } }
+
     fun sendComment() {
         val state = _uiState.value
         if (state.oid == 0L || state.generatedContent.isBlank() || (state.loadingState != AiCommentLoadingState.Idle && !state.isAutoRunning)) return
@@ -266,5 +290,6 @@ class AiCommentViewModel(
             }
         }
     }
+
     fun clearMessages() { _uiState.update { it.copy(error = null, successMessage = null) } }
 }

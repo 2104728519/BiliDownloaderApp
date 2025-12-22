@@ -25,7 +25,6 @@ class GoogleLlmService : ILlmService {
 
             // 1. 确定要使用的实际模型 ID
             val targetModelId = if (modelConfig.isSmartMode) {
-                // --- 智能模式 ---
                 val estimatedTokens = RateLimitHelper.estimateTokens(prompt)
                 val bestModel = RateLimitHelper.selectBestModel(estimatedTokens)
 
@@ -34,8 +33,6 @@ class GoogleLlmService : ILlmService {
                 }
                 bestModel.apiName
             } else {
-                // --- 手动模式 ---
-                // 即使是手动模式，最好也记录一下 Usage，防止把智能模式的额度挤占了却不知道
                 modelConfig.id
             }
 
@@ -51,23 +48,31 @@ class GoogleLlmService : ILlmService {
                 request = request
             )
 
-            // 4. 成功后记录配额消耗 (为了让 RateLimitHelper 保持同步)
-            // 反向查找 Enum，这步是为了保持计数准确
+            // 4. 成功后记录配额消耗
             val usedModelEnum = RateLimitHelper.AiModel.values().find { it.apiName == targetModelId }
             if (usedModelEnum != null) {
                 RateLimitHelper.recordUsage(usedModelEnum, RateLimitHelper.estimateTokens(prompt))
             }
 
-            // 5. 解析结果
+            // 5. 解析结果并添加调试日志
             val candidates = response.candidates
             if (!candidates.isNullOrEmpty()) {
-                val text = candidates[0].content?.parts?.get(0)?.text
+                val candidate = candidates[0]
+
+                // [修改] 打印停止原因日志
+                // 如果显示 SAFETY，说明内容包含敏感词被和谐
+                // 如果显示 MAX_TOKENS，说明内容超长被截断
+                println("GoogleAI StopReason: ${candidate.finishReason}")
+
+                val text = candidate.content?.parts?.get(0)?.text
                 if (!text.isNullOrEmpty()) {
                     return@withContext Resource.Success(text.trim())
+                } else if (candidate.finishReason == "SAFETY") {
+                    return@withContext Resource.Error("Google AI 因安全策略拦截了生成内容 (SAFETY)")
                 }
             }
 
-            Resource.Error("Google AI 返回空内容")
+            Resource.Error("Google AI 返回空内容 (Reason: ${response.candidates?.firstOrNull()?.finishReason})")
 
         } catch (e: Exception) {
             e.printStackTrace()
