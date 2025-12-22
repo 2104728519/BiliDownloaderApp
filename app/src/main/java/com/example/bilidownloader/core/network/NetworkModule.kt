@@ -6,7 +6,8 @@ import com.example.bilidownloader.core.common.Constants
 import com.example.bilidownloader.data.api.AliyunApiService
 import com.example.bilidownloader.data.api.BiliApiService
 import com.example.bilidownloader.data.api.ConsoleApiService
-import com.example.bilidownloader.data.api.GeminiApiService // 【新增】引用 Gemini 接口
+import com.example.bilidownloader.data.api.GeminiApiService
+import com.example.bilidownloader.data.api.DeepSeekApiService
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -17,14 +18,11 @@ import java.util.concurrent.TimeUnit
  * 网络模块 (单例)
  * 负责组装 OkHttp 和 Retrofit，并提供 ApiService 实例
  */
-@SuppressLint("StaticFieldLeak") // Application Context 安全
+@SuppressLint("StaticFieldLeak")
 object NetworkModule {
 
     private var context: Context? = null
 
-    /**
-     * 初始化方法，必须在 Application onCreate 中调用
-     */
     fun initialize(appContext: Context) {
         context = appContext.applicationContext
     }
@@ -37,14 +35,13 @@ object NetworkModule {
     // 1. HTTP Clients 配置
     // ========================================================================
 
-    // 通用日志拦截器
     private val loggingInterceptor by lazy {
         HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         }
     }
 
-    // B 站专用 Client (带 Cookie 处理)
+    // B 站专用 Client
     private val biliOkHttpClient: OkHttpClient by lazy {
         val ctx = getContext()
         OkHttpClient.Builder()
@@ -57,12 +54,25 @@ object NetworkModule {
             .build()
     }
 
-    // 阿里云/通用/Gemini Client (纯净版)
+    // 通用 Client (阿里云听悟等使用)
     private val commonOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * [新增] AI 专用客户端：超长超时时间
+     * 解决 DeepSeek R1 推理模型思考时间过长或 Gemini 生成长文导致的超时问题
+     */
+    private val llmOkHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .connectTimeout(60, TimeUnit.SECONDS) // 连接超时 1 分钟
+            .readTimeout(300, TimeUnit.SECONDS)   // [关键] 读取超时 5 分钟
+            .writeTimeout(60, TimeUnit.SECONDS)   // 写入超时 1 分钟
             .build()
     }
 
@@ -81,7 +91,6 @@ object NetworkModule {
     // 2. Retrofit 实例
     // ========================================================================
 
-    // B 站 Retrofit
     private val biliRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(Constants.BILI_BASE_URL)
@@ -90,7 +99,6 @@ object NetworkModule {
             .build()
     }
 
-    // 阿里云听悟 Retrofit
     private val aliyunRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(Constants.ALIYUN_BASE_URL)
@@ -99,7 +107,6 @@ object NetworkModule {
             .build()
     }
 
-    // 阿里云控制台 Retrofit
     private val consoleRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(Constants.ALIYUN_CONSOLE_BASE_URL)
@@ -108,11 +115,22 @@ object NetworkModule {
             .build()
     }
 
-    // 【新增】Gemini AI Retrofit
+    // [修改] Gemini AI Retrofit：换用 llmOkHttpClient
     private val geminiRetrofit: Retrofit by lazy {
         Retrofit.Builder()
-            .baseUrl("https://generativelanguage.googleapis.com/") // Gemini 官方 Base URL
-            .client(commonOkHttpClient) // 复用通用 Client
+            .baseUrl("https://generativelanguage.googleapis.com/")
+            .client(llmOkHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
+
+    /**
+     * [修改] DeepSeek Retrofit：换用 llmOkHttpClient
+     */
+    private val deepSeekRetrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://api.deepseek.com/")
+            .client(llmOkHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
     }
@@ -133,8 +151,11 @@ object NetworkModule {
         consoleRetrofit.create(ConsoleApiService::class.java)
     }
 
-    // 【新增】对外暴露 Gemini Service
     val geminiService: GeminiApiService by lazy {
         geminiRetrofit.create(GeminiApiService::class.java)
+    }
+
+    val deepSeekService: DeepSeekApiService by lazy {
+        deepSeekRetrofit.create(DeepSeekApiService::class.java)
     }
 }

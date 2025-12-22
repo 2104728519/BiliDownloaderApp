@@ -25,8 +25,8 @@ android {
         applicationId = "com.example.bilidownloader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "2.2.0"
+        versionCode = 14
+        versionName = "2.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -39,7 +39,7 @@ android {
         buildConfigField("String", "OSS_KEY_SECRET", "\"${localProperties.getProperty("OSS_ACCESS_KEY_SECRET") ?: ""}\"")
 
         buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties.getProperty("GEMINI_API_KEY") ?: ""}\"")
-
+        buildConfigField("String", "DEEPSEEK_API_KEY", "\"${localProperties.getProperty("DEEPSEEK_API_KEY") ?: ""}\"")
         ndk {
             // 只打包 arm64-v8a 架构的 .so 文件
             abiFilters.add("arm64-v8a")
