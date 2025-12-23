@@ -15,14 +15,20 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 /**
- * 网络模块 (单例)
- * 负责组装 OkHttp 和 Retrofit，并提供 ApiService 实例
+ * 网络模块配置对象 (单例).
+ *
+ * 负责集中管理 OkHttp 客户端和 Retrofit 实例的创建。
+ * 针对不同的业务场景（B站 API、阿里云、LLM 推理）配置了不同的超时策略和拦截器。
  */
 @SuppressLint("StaticFieldLeak")
 object NetworkModule {
 
     private var context: Context? = null
 
+    /**
+     * 初始化网络模块.
+     * @param appContext 必须传入 Application Context 以避免内存泄漏.
+     */
     fun initialize(appContext: Context) {
         context = appContext.applicationContext
     }
@@ -31,9 +37,7 @@ object NetworkModule {
         return context ?: throw IllegalStateException("NetworkModule 未初始化，请在 Application 中调用 initialize()")
     }
 
-    // ========================================================================
-    // 1. HTTP Clients 配置
-    // ========================================================================
+    // region 1. HTTP Clients Configuration
 
     private val loggingInterceptor by lazy {
         HttpLoggingInterceptor().apply {
@@ -41,7 +45,10 @@ object NetworkModule {
         }
     }
 
-    // B 站专用 Client
+    /**
+     * B 站专用客户端.
+     * 集成了防风控 Header、Cookie 注入和 Cookie 捕获拦截器.
+     */
     private val biliOkHttpClient: OkHttpClient by lazy {
         val ctx = getContext()
         OkHttpClient.Builder()
@@ -54,7 +61,10 @@ object NetworkModule {
             .build()
     }
 
-    // 通用 Client (阿里云听悟等使用)
+    /**
+     * 通用客户端.
+     * 用于阿里云听悟、控制台爬虫等常规 API 请求.
+     */
     private val commonOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
@@ -64,20 +74,23 @@ object NetworkModule {
     }
 
     /**
-     * [新增] AI 专用客户端：超长超时时间
-     * 解决 DeepSeek R1 推理模型思考时间过长或 Gemini 生成长文导致的超时问题
+     * LLM (大语言模型) 专用客户端.
+     *
+     * 特别配置了超长的读取超时时间 (10分钟)，以适应 DeepSeek R1 等推理模型
+     * 或 Gemini 生成长文本时所需的长时间思考/生成过程，防止 SocketTimeoutException.
      */
     private val llmOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
-            .connectTimeout(60, TimeUnit.SECONDS) // 连接超时 1 分钟
-            .readTimeout(600, TimeUnit.SECONDS)   // [关键] 读取超时 5 分钟
-            .writeTimeout(60, TimeUnit.SECONDS)   // 写入超时 1 分钟
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(600, TimeUnit.SECONDS)   // 读取超时设定为 10 分钟
+            .writeTimeout(60, TimeUnit.SECONDS)
             .build()
     }
 
     /**
-     * 下载专用 Client
+     * 文件下载专用客户端.
+     * 配置了较长的超时时间并开启连接失败重试.
      */
     val downloadClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -87,9 +100,9 @@ object NetworkModule {
             .build()
     }
 
-    // ========================================================================
-    // 2. Retrofit 实例
-    // ========================================================================
+    // endregion
+
+    // region 2. Retrofit Instances
 
     private val biliRetrofit: Retrofit by lazy {
         Retrofit.Builder()
@@ -115,29 +128,25 @@ object NetworkModule {
             .build()
     }
 
-    // Gemini AI Retrofit：换用 llmOkHttpClient
     private val geminiRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl("https://generativelanguage.googleapis.com/")
-            .client(llmOkHttpClient)
+            .client(llmOkHttpClient) // 使用 LLM 专用客户端
             .addConverterFactory(GsonConverterFactory.create())
             .build()
     }
 
-    /**
-     * [修改] DeepSeek Retrofit：换用 llmOkHttpClient
-     */
     private val deepSeekRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl("https://api.deepseek.com/")
-            .client(llmOkHttpClient)
+            .client(llmOkHttpClient) // 使用 LLM 专用客户端
             .addConverterFactory(GsonConverterFactory.create())
             .build()
     }
 
-    // ========================================================================
-    // 3. 对外暴露的 API Services
-    // ========================================================================
+    // endregion
+
+    // region 3. Exposed API Services
 
     val biliService: BiliApiService by lazy {
         biliRetrofit.create(BiliApiService::class.java)
@@ -158,4 +167,6 @@ object NetworkModule {
     val deepSeekService: DeepSeekApiService by lazy {
         deepSeekRetrofit.create(DeepSeekApiService::class.java)
     }
+
+    // endregion
 }

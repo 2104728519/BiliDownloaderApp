@@ -5,14 +5,17 @@ import java.security.MessageDigest
 import java.util.TreeMap
 
 /**
- * 专门负责给 B站 API 进行 WBI 签名加密的工具类
- * 就像是一个精通密码学的管家
+ * B 站 WBI (Web Browser Interface) 签名算法工具类.
+ *
+ * 负责实现 B 站 API 的参数加密校验机制。该机制要求客户端必须对请求参数进行
+ * 特定的重排序、拼接，并结合动态获取的 Mixin Key 进行 MD5 签名。
  */
 object BiliSigner {
 
-    // 【神秘藏宝图】
-    // 这是一个固定的数字列表，用来打乱密钥的顺序
-    // 只有按照这个顺序拼出来的 MixinKey 才是对的
+    /**
+     * Mixin Key 重组索引表.
+     * B 站前端 JS 中定义的固定置换表，用于打乱 imgKey 和 subKey 的字符顺序。
+     */
     private val MIXIN_KEY_ENC_TAB = intArrayOf(
         46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
         33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
@@ -21,9 +24,7 @@ object BiliSigner {
     )
 
     /**
-     * 动作1：计算 MD5
-     * 就像是给一封信盖个红色的火漆印章，证明这封信没被改过。
-     * 输入一段文字，输出一串 32 位的乱码。
+     * 计算字符串的 MD5 哈希值 (32位小写 hex).
      */
     private fun md5(str: String): String {
         return MessageDigest.getInstance("MD5")
@@ -32,18 +33,17 @@ object BiliSigner {
     }
 
     /**
-     * 动作2：生成 MixinKey (混合密钥)
-     * 把 B 站给的两个原始暗号 (imgKey, subKey)，按照上面的“藏宝图”重新拼贴。
+     * 生成 Mixin Key (混合密钥).
+     *
+     * 将从 Nav 接口获取的 imgKey 和 subKey 拼接后，根据 [MIXIN_KEY_ENC_TAB]
+     * 进行字符位置重排，生成最终用于签名的密钥。
      */
     fun getMixinKey(imgKey: String, subKey: String): String {
-        // 先把两个暗号拼在一起
         val raw = imgKey + subKey
         val sb = StringBuilder()
 
-        // 按照藏宝图的顺序，一个字一个字地挑出来
         for (i in 0 until 32) {
             if (i < MIXIN_KEY_ENC_TAB.size) {
-                // 查表，看要取第几个字
                 val charIndex = MIXIN_KEY_ENC_TAB[i]
                 if (charIndex < raw.length) {
                     sb.append(raw[charIndex])
@@ -54,30 +54,31 @@ object BiliSigner {
     }
 
     /**
-     * 动作3：给参数签名 (核心功能)
-     * 输入：我们要问 B 站的问题 (params)，比如 "我要看BV12345"
-     * 输入：拼贴好的混合密钥 (mixinKey)
-     * 输出：加了“加密纸条”的完整问题字符串
+     * 对请求参数进行 WBI 签名.
+     *
+     * 1. 注入当前时间戳 (wts).
+     * 2. 对参数按 Key 字典序排序.
+     * 3. 过滤非法字符并进行 URL 编码.
+     * 4. 拼接 Mixin Key 并计算 MD5.
+     *
+     * @param params 原始请求参数 (TreeMap 保证有序).
+     * @param mixinKey 计算好的混合密钥.
+     * @return 包含 w_rid (签名) 和 wts (时间戳) 的完整 Query String.
      */
     fun signParams(params: TreeMap<String, Any>, mixinKey: String): String {
-        // 1. 加上当前时间戳 (防止有人拿以前的旧票混进去)
-        // wts = 当前时间的秒数
+        // 1. 注入时间戳 (秒级)
         params["wts"] = System.currentTimeMillis() / 1000
 
-        // 2. 把所有参数整理成 "key=value" 的格式，并用 "&" 连起来
-        // 就像把一堆零散的硬币用绳子串起来
+        // 2. 参数序列化与编码
         val queryBuilder = StringBuilder()
-
-        // TreeMap 会自动按字母顺序给参数排序 (a...z)，这是 B 站要求的
         for ((k, v) in params) {
             if (queryBuilder.isNotEmpty()) {
                 queryBuilder.append("&")
             }
 
-            // 过滤掉一些特殊符号 (比如 !'()* )，防止干扰
+            // 过滤特殊字符 (!'()*) 防止干扰签名计算
             val cleanValue = v.toString().filter { it !in "!'()*" }
 
-            // 进行 URL 编码 (比如把空格变成 %20，汉字变成乱码)
             val encodedKey = URLEncoder.encode(k, "UTF-8")
             val encodedValue = URLEncoder.encode(cleanValue, "UTF-8")
 
@@ -86,11 +87,9 @@ object BiliSigner {
 
         val queryString = queryBuilder.toString()
 
-        // 3. 最后一步：算 MD5 指纹
-        // 公式：MD5( 参数串 + 混合密钥 )
+        // 3. 计算签名: MD5(QueryString + MixinKey)
         val wRid = md5(queryString + mixinKey)
 
-        // 返回最终结果：参数串 + 指纹
         return "$queryString&w_rid=$wRid"
     }
 }
