@@ -14,48 +14,43 @@ import java.net.URLDecoder
 import java.util.TreeMap
 
 /**
- * 转写准备用例
- * 职责：提取视频的音频轨道，下载为临时文件，供阿里云转写服务使用
+ * 转写预处理用例.
+ *
+ * 职责：从 B 站视频中提取纯音频轨道，并将其下载为本地临时文件。
+ * 这是连接 B 站视频源与阿里云 ASR 服务的桥梁。
  */
 class PrepareTranscribeUseCase(
     private val context: Context,
     private val downloadRepository: DownloadRepository
 ) {
-
-    // 输入参数：需要 BVID 和 CID
     data class Params(val bvid: String, val cid: Long)
 
-    // 返回：下载好的文件绝对路径
     operator fun invoke(params: Params): Flow<Resource<String>> = flow {
-        // 【修复】使用新的构造函数，明确指定 data 参数
         emit(Resource.Loading(progress = 0f, data = "正在准备音频..."))
 
         try {
-            // 1. 获取签名后的参数 (普通画质 80 即可)
+            // 1. 获取低画质流 (qn=16/80) 即可，因为我们要的是音频
             val queryMap = getSignedParams(params.bvid, params.cid, 80)
 
-            // 2. 请求播放地址
             val playResp = NetworkModule.biliService.getPlayUrl(queryMap).execute()
             val data = playResp.body()?.data
 
-            // 优先找 Dash 音频，没有则找 Durl
+            // 优先提取 DASH 音频流，若无则使用 MP4 直链
             val audioUrl: String = data?.dash?.audio?.firstOrNull()?.baseUrl
                 ?: data?.durl?.firstOrNull()?.url
                 ?: throw Exception("提取音频失败：未找到音频流")
 
-            // 3. 准备临时文件
             val tempFile = File(context.cacheDir, "trans_${System.currentTimeMillis()}.m4a")
 
-            // 4. 下载
+            // 2. 下载音频到 Cache 目录
             downloadRepository.downloadFile(audioUrl, tempFile).collect { progress ->
-                // 【修复】使用新的构造函数，传入 progress 和 data
                 emit(Resource.Loading(
                     progress = progress,
                     data = "提取音频中... ${(progress * 100).toInt()}%"
                 ))
             }
 
-            // 5. 成功返回路径
+            // 3. 返回本地文件绝对路径供 OSS 上传使用
             emit(Resource.Success(tempFile.absolutePath))
 
         } catch (e: Exception) {
@@ -64,7 +59,6 @@ class PrepareTranscribeUseCase(
         }
     }.flowOn(Dispatchers.IO)
 
-    // 复用签名逻辑
     private fun getSignedParams(bvid: String, cid: Long, quality: Int): Map<String, String> {
         val navResp = NetworkModule.biliService.getNavInfo().execute()
         val navData = navResp.body()?.data ?: throw Exception("无法获取密钥")

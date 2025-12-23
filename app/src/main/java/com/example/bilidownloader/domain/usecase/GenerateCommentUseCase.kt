@@ -7,35 +7,36 @@ import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.CommentStyle
 
 /**
- * 业务逻辑：生成 AI 评论
- * 步骤：
- * 1. 将视频摘要和字幕全文拼接在一起，为 AI 提供最完整的上下文。
- * 2. 构建优化的 Prompt，引导 AI 综合所有信息进行创作。
- * 3. 调用 LLM 并指定具体的模型配置。
+ * 评论生成用例 (Prompt Engineering).
+ *
+ * 负责构建上下文 (Context) 并生成提示词 (Prompt)，调度 LLM 进行创作。
+ * 核心逻辑：
+ * 1. **上下文拼接**：将 AI 摘要与字幕全文拼接，最大化利用 LLM 的 Context Window。
+ * 2. **Prompt 注入**：将用户选择的风格指令 (如“幽默玩梗”) 嵌入到 System Prompt 中。
  */
 class GenerateCommentUseCase(private val llmRepository: LlmRepository) {
 
     suspend operator fun invoke(
         subtitleData: ConclusionData,
         style: CommentStyle,
-        modelConfig: AiModelConfig // [新增] 指定模型配置参数
+        modelConfig: AiModelConfig
     ): Resource<String> {
 
-        // 1. 提取并拼接所有可用文本
+        // 1. 数据准备
         val sb = StringBuilder()
         val summary = subtitleData.modelResult?.summary
         val subtitles = subtitleData.modelResult?.subtitle?.firstOrNull()?.partSubtitle
 
-        // 如果两者都为空，则无法生成
         if (subtitles.isNullOrEmpty() && summary.isNullOrEmpty()) {
             return Resource.Error("没有足够的字幕或摘要内容供 AI 参考")
         }
 
-        // 将摘要和字幕全部拼接，为 AI 提供最全的上下文
+        // 拼接摘要 (High Level Context)
         if (!summary.isNullOrEmpty()) {
             sb.append("【视频AI摘要】\n$summary\n\n")
         }
 
+        // 拼接字幕全文 (Detailed Context)
         if (!subtitles.isNullOrEmpty()) {
             sb.append("【视频字幕全文】\n")
             subtitles.forEach { item ->
@@ -45,23 +46,24 @@ class GenerateCommentUseCase(private val llmRepository: LlmRepository) {
 
         val content = sb.toString()
 
-        // 2. 构建优化的 Prompt
+        // 2. Prompt 构建
+        // 使用 Few-Shot 或指令遵循的方式引导模型
         val prompt = """
             你是一个哔哩哔哩（B站）的资深用户。请根据我提供的视频摘要和字幕全文，写一条评论。
             
-            【指令要求】
+            【风格指令】
             ${style.promptInstruction}
             
-            【注意】
+            【约束条件】
             - 综合摘要和字幕的全部信息来构思评论，不要只看一部分。
-            - 不要输出任何解释性文字（如“好的，这是评论...”），直接输出最终的评论内容。
+            - 严禁输出任何解释性文字（如“好的，这是评论...”），直接输出最终的评论内容。
+            - 长度控制在 50-100 字之间，除非风格另有要求。
             
             【视频信息】
             $content
         """.trimIndent()
 
-        // 3. 调用 Repository 并传入模型配置
-        // 确保您的 LlmRepository.generateComment 方法已重载或修改为接收 (AiModelConfig, String)
+        // 3. 调度 LLM
         return llmRepository.generateComment(modelConfig, prompt)
     }
 }

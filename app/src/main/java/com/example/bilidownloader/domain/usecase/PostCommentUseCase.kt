@@ -4,8 +4,9 @@ import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.data.repository.CommentRepository
 
 /**
- * 业务逻辑：发送评论
- * 非常简单，主要是为了架构的分层统一
+ * 评论发送用例.
+ *
+ * 简单的业务封装，主要负责前置校验（如空内容检查、字数限制）。
  */
 class PostCommentUseCase(private val commentRepository: CommentRepository) {
 

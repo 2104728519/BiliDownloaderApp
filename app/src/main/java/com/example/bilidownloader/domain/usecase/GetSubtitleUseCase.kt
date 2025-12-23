@@ -10,11 +10,10 @@ import kotlinx.coroutines.withContext
 import java.util.TreeMap
 
 /**
- * 业务逻辑：获取 AI 字幕
- * 职责：
- * 1. 获取 WBI 密钥 (Nav接口)
- * 2. 计算 WBI 签名 (w_rid)
- * 3. 请求字幕数据
+ * 字幕获取用例.
+ *
+ * 封装了字幕请求前的 WBI 签名逻辑。
+ * B 站的 AI 摘要接口 (`conclusion/get`) 对签名校验极为严格，必须在此处完成完整的签名计算。
  */
 class GetSubtitleUseCase(
     private val subtitleRepository: SubtitleRepository,
@@ -26,22 +25,19 @@ class GetSubtitleUseCase(
         upMid: Long?
     ): Resource<ConclusionData> = withContext(Dispatchers.IO) {
         try {
-            // 1. 获取 Nav 信息以拿到 WBI 密钥 (img_key, sub_key)
-            // 因为 apiService.getNavInfo() 返回的是 Call，我们用 execute() 同步请求
+            // 1. 同步获取 WBI 密钥
             val navResponse = apiService.getNavInfo().execute()
-
             val navData = navResponse.body()?.data
             if (navData == null) {
                 return@withContext Resource.Error("无法获取 WBI 密钥，请检查网络或登录状态")
             }
 
-            // 2. 计算 Mixin Key (混合密钥)
             val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
             val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
             val mixinKey = BiliSigner.getMixinKey(imgKey, subKey)
 
-            // 3. 准备参数并签名
-            // 使用 TreeMap 是为了保证参数有序，这是签名的要求
+            // 2. 参数签名
+            // up_mid 虽为可选参数，但 B 站风控建议带上
             val params = TreeMap<String, Any>()
             params["bvid"] = bvid
             params["cid"] = cid
@@ -49,16 +45,13 @@ class GetSubtitleUseCase(
                 params["up_mid"] = upMid
             }
 
-            // signParams 会在 params 中自动插入 "wts" (时间戳)
-            // 返回值是形如 "bvid=xxx&cid=xxx&wts=123...&w_rid=xxx" 的字符串
+            // 签名过程会自动注入 'wts' (时间戳)
             val signedQueryString = BiliSigner.signParams(params, mixinKey)
 
-            // 4. 从结果中提取 wts 和 w_rid
-            // 因为我们的 Retrofit 接口定义的参数是独立的，所以需要提取出来
             val wts = params["wts"] as Long
             val wRid = signedQueryString.substringAfter("w_rid=")
 
-            // 5. 调用 Repository 获取字幕
+            // 3. 委托 Repository 执行实际请求 (含双重兜底逻辑)
             return@withContext subtitleRepository.getSubtitle(
                 bvid = bvid,
                 cid = cid,
