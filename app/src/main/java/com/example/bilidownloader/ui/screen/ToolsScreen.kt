@@ -2,7 +2,7 @@ package com.example.bilidownloader.ui.screen
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome // 新图标
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.*
@@ -11,12 +11,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
+/**
+ * 工具箱导航页面.
+ * 简单的卡片式菜单，用于进入各个独立功能模块。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ToolsScreen(
     onNavigateToAudioCrop: () -> Unit,
     onNavigateToTranscription: () -> Unit,
-    onNavigateToAiComment: () -> Unit // [新增] 跳转回调
+    onNavigateToAiComment: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -36,13 +40,12 @@ fun ToolsScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ... (保留原有的 音频裁剪 卡片)
+            // 1. 音频裁剪
             ElevatedCard(
                 onClick = onNavigateToAudioCrop,
                 modifier = Modifier.fillMaxWidth().height(100.dp),
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
             ) {
-                // ... (保留内部代码)
                 Row(
                     modifier = Modifier.fillMaxSize().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -58,13 +61,12 @@ fun ToolsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // ... (保留原有的 音频转文字 卡片)
+            // 2. 音频转写
             ElevatedCard(
                 onClick = onNavigateToTranscription,
                 modifier = Modifier.fillMaxWidth().height(100.dp),
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
             ) {
-                // ... (保留内部代码)
                 Row(
                     modifier = Modifier.fillMaxSize().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -80,18 +82,14 @@ fun ToolsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // [新增] AI 评论助手 卡片
+            // 3. AI 评论助手
             ElevatedCard(
                 onClick = onNavigateToAiComment,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer) // 用个不同的颜色
+                modifier = Modifier.fillMaxWidth().height(100.dp),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(

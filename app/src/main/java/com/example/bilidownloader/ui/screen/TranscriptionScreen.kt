@@ -26,6 +26,15 @@ import com.example.bilidownloader.core.manager.CookieManager
 import java.io.File
 import java.net.URLDecoder
 
+/**
+ * 音频转写详情页.
+ *
+ * 流程：
+ * 1. 展示文件名和用量统计 (UsageCard)。
+ * 2. 用户点击“开始” -> 上传文件到 OSS -> 提交转写任务。
+ * 3. 轮询任务状态 (Processing)。
+ * 4. 成功后显示结果文本框 (Success)，支持复制。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TranscriptionScreen(
@@ -52,10 +61,8 @@ fun TranscriptionScreen(
             )
         }
     ) { padding ->
-        // 【关键修复】根据状态决定是否应用 verticalScroll
         val isSuccessState = uiState is TranscriptionViewModel.TransState.Success
 
-        // 外部 Column 负责整体布局和 padding
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -63,18 +70,17 @@ fun TranscriptionScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-
+            // 用量统计卡片
             UsageCard(usageState, onRefresh = { viewModel.loadUsage() })
             Spacer(Modifier.height(16.dp))
 
-            // 如果是成功状态，让 SuccessState 自己用 weight 填满空间
+            // 成功状态需要填满屏幕以显示大量文本，其他状态可滚动
             if (isSuccessState) {
                 SuccessState(
                     text = (uiState as TranscriptionViewModel.TransState.Success).text,
-                    onTextChange = { /* 暂时不做处理，因为 ViewModel 是单向数据流 */ }
+                    onTextChange = { /* 只读展示，或者 viewModel 更新 */ }
                 )
             } else {
-                // 对于其他状态，允许内容区域滚动，以防被展开的卡片遮挡
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -85,7 +91,7 @@ fun TranscriptionScreen(
                         is TranscriptionViewModel.TransState.Idle -> IdleState(fileName) { viewModel.startTranscription(filePath) }
                         is TranscriptionViewModel.TransState.Processing -> ProcessingState(state)
                         is TranscriptionViewModel.TransState.Error -> ErrorState(state) { viewModel.startTranscription(filePath) }
-                        else -> { /* 已在 if 中处理 SuccessState */ }
+                        else -> {}
                     }
                 }
             }
@@ -93,7 +99,6 @@ fun TranscriptionScreen(
     }
 }
 
-// ... UsageCard 保持不变 ...
 @Composable
 private fun UsageCard(
     usageState: TranscriptionViewModel.UsageState,
@@ -102,43 +107,30 @@ private fun UsageCard(
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
+    // 从 CookieManager 加载上次保存的凭证
     var cookieInput by remember { mutableStateOf(CookieManager.getAliyunConsoleCookie(context) ?: "") }
     var tokenInput by remember { mutableStateOf(CookieManager.getAliyunConsoleSecToken(context) ?: "") }
 
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(2.dp)
-    ) {
+    Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(2.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("本月免费额度", style = MaterialTheme.typography.titleMedium)
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = "展开/折叠"
-                )
+                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = "展开")
             }
 
             Spacer(Modifier.height(8.dp))
 
             when (usageState) {
-                is TranscriptionViewModel.UsageState.Loading -> {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
+                is TranscriptionViewModel.UsageState.Loading -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 is TranscriptionViewModel.UsageState.Success -> {
                     val progress = (usageState.usedMinutes / usageState.totalMinutes).toFloat()
                     LinearProgressIndicator(
                         progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(MaterialTheme.shapes.small)
+                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(MaterialTheme.shapes.small)
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -147,12 +139,8 @@ private fun UsageCard(
                         modifier = Modifier.align(Alignment.End)
                     )
                 }
-                is TranscriptionViewModel.UsageState.Error -> {
-                    Text(usageState.msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-                is TranscriptionViewModel.UsageState.Idle -> {
-                    Text("请先配置凭证以查询用量", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
+                is TranscriptionViewModel.UsageState.Error -> Text(usageState.msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                is TranscriptionViewModel.UsageState.Idle -> Text("请先配置凭证以查询用量", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             }
 
             AnimatedVisibility(visible = expanded) {
@@ -186,9 +174,7 @@ private fun UsageCard(
                             } else {
                                 Toast.makeText(context, "Cookie 和 Token 不能为空", Toast.LENGTH_SHORT).show()
                             }
-                        }) {
-                            Text("保存并刷新")
-                        }
+                        }) { Text("保存并刷新") }
                     }
                 }
             }
@@ -196,8 +182,6 @@ private fun UsageCard(
     }
 }
 
-
-// ... IdleState, ProcessingState, ErrorState 保持不变 ...
 @Composable
 private fun IdleState(fileName: String, onStart: () -> Unit) {
     Spacer(modifier = Modifier.height(48.dp))
@@ -239,14 +223,11 @@ private fun ErrorState(state: TranscriptionViewModel.TransState.Error, onRetry: 
     }
 }
 
-
-// 【关键修复 2】修改 SuccessState
 @Composable
 private fun ColumnScope.SuccessState(text: String, onTextChange: (String) -> Unit) {
     val context = LocalContext.current
-    var currentText by remember(text) { mutableStateOf(text) } // 创建一个本地状态来处理编辑
+    var currentText by remember(text) { mutableStateOf(text) }
 
-    // Row for title and copy button
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -264,16 +245,13 @@ private fun ColumnScope.SuccessState(text: String, onTextChange: (String) -> Uni
 
     Spacer(Modifier.height(8.dp))
 
-    // TextField that fills the remaining space
     OutlinedTextField(
         value = currentText,
         onValueChange = {
             currentText = it
-            onTextChange(it) // 将更改通知给调用者（虽然现在没用，但好习惯）
+            onTextChange(it)
         },
-        modifier = Modifier
-            .weight(1f)      // <--- 使用 weight
-            .fillMaxWidth(), // <--- 填满宽度
+        modifier = Modifier.weight(1f).fillMaxWidth(),
         textStyle = MaterialTheme.typography.bodyLarge
     )
 }

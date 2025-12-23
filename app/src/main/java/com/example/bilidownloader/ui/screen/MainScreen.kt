@@ -19,6 +19,12 @@ import androidx.navigation.navArgument
 import com.example.bilidownloader.core.util.StorageHelper
 import java.net.URLEncoder
 
+/**
+ * 全局主容器 (Scaffold).
+ *
+ * 包含底部导航栏 (Bottom Navigation) 和路由控制器 (NavHost)。
+ * 定义了整个应用的所有页面路由规则和参数传递方式。
+ */
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
@@ -29,6 +35,7 @@ fun MainScreen() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
 
+                // 首页 Tab
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Home, contentDescription = null) },
                     label = { Text("首页") },
@@ -42,6 +49,7 @@ fun MainScreen() {
                     }
                 )
 
+                // 工具 Tab
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Build, contentDescription = null) },
                     label = { Text("工具") },
@@ -62,10 +70,12 @@ fun MainScreen() {
             startDestination = "home",
             modifier = Modifier.padding(innerPadding)
         ) {
-            // --- 首页 ---
+            // region Home Navigation
+
             composable("home") {
                 HomeScreen(
                     onNavigateToTranscribe = { path ->
+                        // 路径包含特殊字符，需 URL 编码
                         val encodedPath = URLEncoder.encode(path, "UTF-8")
                         navController.navigate("transcription/$encodedPath")
                     },
@@ -75,36 +85,37 @@ fun MainScreen() {
                 )
             }
 
-            // --- 登录页 ---
             composable("login") {
                 LoginScreen(
                     onBack = { navController.popBackStack() }
                 )
             }
 
-            // --- 工具箱首页 ---
+            // endregion
+
+            // region Tools Navigation
+
             composable("tools") {
                 ToolsScreen(
                     onNavigateToAudioCrop = { navController.navigate("audio_picker") },
                     onNavigateToTranscription = { navController.navigate("audio_picker_transcribe") },
-                    // [新增] 导航至 AI 评论助手
                     onNavigateToAiComment = { navController.navigate("ai_comment") }
                 )
             }
 
-            // [新增] AI 评论助手页路由
             composable("ai_comment") {
                 AiCommentScreen(
                     onBack = { navController.popBackStack() }
                 )
             }
 
-            // --- 音频选择页 (用于剪辑) ---
+            // 音频选择 (剪辑用)
             composable("audio_picker") {
                 val context = LocalContext.current
                 AudioPickerScreen(
                     onBack = { navController.popBackStack() },
                     onAudioSelected = { uri ->
+                        // 复制到缓存目录，确保文件有绝对路径
                         val tempName = "temp_crop_${System.currentTimeMillis()}.mp3"
                         val cacheFile = StorageHelper.copyUriToCache(context, uri, tempName)
                         if (cacheFile != null) {
@@ -117,7 +128,6 @@ fun MainScreen() {
                 )
             }
 
-            // --- 剪辑详情页 ---
             composable(
                 route = "audio_crop/{uri}",
                 arguments = listOf(navArgument("uri") { type = NavType.StringType })
@@ -129,7 +139,7 @@ fun MainScreen() {
                 )
             }
 
-            // --- 音频选择页 (用于转写) ---
+            // 音频选择 (转写用)
             composable("audio_picker_transcribe") {
                 val context = LocalContext.current
                 AudioPickerScreen(
@@ -148,7 +158,6 @@ fun MainScreen() {
                 )
             }
 
-            // --- 转写详情页 ---
             composable(
                 route = "transcription/{path}",
                 arguments = listOf(navArgument("path") { type = NavType.StringType })
@@ -159,6 +168,8 @@ fun MainScreen() {
                     onBack = { navController.popBackStack() }
                 )
             }
+
+            // endregion
         }
     }
 }

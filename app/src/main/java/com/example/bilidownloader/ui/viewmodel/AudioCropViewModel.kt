@@ -18,33 +18,36 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URLDecoder
 
+/**
+ * 音频裁剪 ViewModel.
+ *
+ * 负责：
+ * 1. **音频加载**：解析文件元数据，获取时长。
+ * 2. **播放控制**：管理 MediaPlayer 实例，支持区间循环播放。
+ * 3. **裁剪执行**：调用 FFmpeg 进行精确裁剪。
+ */
 class AudioCropViewModel(application : Application) : AndroidViewModel(application) {
 
-    // 1. 状态变量
     private val _totalDuration = MutableStateFlow(0L)
     val totalDuration = _totalDuration.asStateFlow()
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying = _isPlaying.asStateFlow()
 
-    // 【新增】当前播放进度 (毫秒)
     private val _currentPosition = MutableStateFlow(0L)
     val currentPosition = _currentPosition.asStateFlow()
 
-    // 保存状态：0=空闲, 1=正在保存, 2=成功, 3=失败
+    // 0=Idle, 1=Saving, 2=Success, 3=Error
     private val _saveState = MutableStateFlow(0)
     val saveState = _saveState.asStateFlow()
 
     private var sourceFilePath: String? = null
-
-    // 2. 播放器及协程任务
     private var mediaPlayer: MediaPlayer? = null
     private var playbackJob: Job? = null
 
-
     /**
-     * 【修改】安全地停止音频播放
-     * 同时取消协程、暂停播放器并重置进度
+     * 停止播放并重置播放器状态.
+     * 必须在页面销毁或重新加载文件时调用.
      */
     fun stopAudio() {
         playbackJob?.cancel()
@@ -59,14 +62,11 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
         }
 
         _isPlaying.value = false
-        _currentPosition.value = 0L // 重置进度显示
+        _currentPosition.value = 0L
     }
 
-    /**
-     * 加载音频信息
-     */
     fun loadAudioInfo(pathStr: String) {
-        stopAudio() // 加载前先清理旧状态
+        stopAudio()
 
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -95,7 +95,8 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
     }
 
     /**
-     * 【修改】播放指定的音频片段，并实时更新进度
+     * 播放指定区间.
+     * 启动一个协程每 50ms 轮询一次进度，用于更新 UI 进度条。
      */
     fun playRegion(startRatio: Float, endRatio: Float) {
         val player = mediaPlayer ?: return
@@ -120,13 +121,13 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
                 playbackJob = launch {
                     while (isActive && player.isPlaying) {
                         val current = player.currentPosition.toLong()
-                        _currentPosition.value = current // 【新增】更新播放进度
+                        _currentPosition.value = current
 
                         if (current >= endMs) {
                             stopAudio()
                             break
                         }
-                        delay(50) // 每 50 毫秒更新一次
+                        delay(50)
                     }
                     _isPlaying.value = false
                 }
@@ -137,10 +138,6 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
         }
     }
 
-
-    /**
-     * 执行裁剪并保存
-     */
     fun saveCroppedAudio(fileName: String, startRatio: Float, endRatio: Float) {
         val path = sourceFilePath ?: return
         val total = _totalDuration.value
@@ -158,6 +155,7 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
                 val endSec = (total * endRatio) / 1000.0
                 val durationSec = endSec - startSec
 
+                // 调用 FFmpeg 进行裁剪 (重编码为 MP3 保证兼容性)
                 val cropSuccess = FFmpegHelper.trimAudio(inputFile, outFile, startSec, durationSec)
                 if (!cropSuccess) throw Exception("FFmpeg trimming failed")
 
@@ -177,9 +175,7 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
         }
     }
 
-    fun resetSaveState() {
-        _saveState.value = 0
-    }
+    fun resetSaveState() { _saveState.value = 0 }
 
     override fun onCleared() {
         super.onCleared()

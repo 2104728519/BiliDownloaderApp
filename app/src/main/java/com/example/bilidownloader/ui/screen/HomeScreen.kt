@@ -45,6 +45,18 @@ import com.example.bilidownloader.ui.state.FormatOption
 import com.example.bilidownloader.ui.state.MainState
 import com.example.bilidownloader.ui.viewmodel.MainViewModel
 
+/**
+ * 应用主页 (Home Screen).
+ *
+ * 这是一个复杂的聚合页面，根据 [MainState] 的不同状态在同一个 Screen 内切换视图：
+ * 1. **Idle (空闲态)**: 显示输入框和历史记录列表。支持多选删除模式。
+ * 2. **Analyzing (解析中)**: 显示 Loading 指示器。
+ * 3. **ChoiceSelect (选择态)**: 展示解析后的视频详情、Web 播放器、格式选择器以及下载/字幕入口。
+ * 4. **Processing (处理中)**: 显示下载进度条和控制按钮（暂停/取消）。
+ * 5. **Success/Error**: 结果反馈。
+ *
+ * 同时包含账号管理弹窗 (`AccountDialog`) 和字幕预览弹窗 (`SubtitleDialog`) 的逻辑。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -56,10 +68,10 @@ fun HomeScreen(
     val clipboardManager = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Android 13+ 通知权限
+    // Android 13 (Tiramisu) 通知权限动态申请
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = { /* 处理权限结果 */ }
+        onResult = { /* 结果已由系统处理 */ }
     )
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -69,17 +81,18 @@ fun HomeScreen(
         }
     }
 
-    // 状态监听
+    // 状态收集
     val currentUser by viewModel.currentUser.collectAsState()
     val userList by viewModel.userList.collectAsState()
     val state by viewModel.state.collectAsState()
     val historyList by viewModel.historyList.collectAsState()
 
+    // UI 交互状态
     var inputText by remember { mutableStateOf("") }
     var isSelectionMode by remember { mutableStateOf(false) }
     val selectedItems = remember { mutableStateListOf<HistoryEntity>() }
 
-    // 弹窗控制
+    // 弹窗可见性控制
     var showAccountDialog by remember { mutableStateOf(false) }
     var showManualCookieInput by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
@@ -89,6 +102,7 @@ fun HomeScreen(
         selectedItems.clear()
     }
 
+    // 生命周期监听：每次回到前台时同步 Cookie 状态
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) viewModel.syncCookieToUserDB()
@@ -97,20 +111,19 @@ fun HomeScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // 物理返回键拦截：优先退出多选模式 -> 优先重置状态 -> 默认行为
     BackHandler(enabled = isSelectionMode || state !is MainState.Idle) {
         if (isSelectionMode) exitSelectionMode()
         else if (state !is MainState.Idle) viewModel.reset()
     }
 
-    // =========================================================
-    // 1. 账号列表弹窗
-    // =========================================================
+    // region Dialogs (弹窗区域)
+
+    // 1. 账号管理弹窗
     if (showAccountDialog) {
         Dialog(onDismissRequest = { showAccountDialog = false }) {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
                 shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
@@ -128,16 +141,12 @@ fun HomeScreen(
                                     isCurrent = user.mid == currentUser?.mid,
                                     onClick = { if (user.mid != currentUser?.mid) viewModel.switchAccount(user) },
                                     onLongClick = {
-                                        // 【关键修改】智能拼接完整 Cookie
+                                        // 复制完整 Cookie (含 CSRF 补全逻辑)
                                         var cookieStr = user.sessData.trim()
-                                        // 确保以分号结尾，方便拼接
                                         if (!cookieStr.endsWith(";")) cookieStr += ";"
-
-                                        // 如果原始字符串里没有 bili_jct，但数据库里存了，就补上去
                                         if (!cookieStr.contains("bili_jct") && user.biliJct.isNotEmpty()) {
                                             cookieStr += " bili_jct=${user.biliJct};"
                                         }
-
                                         clipboardManager.setText(AnnotatedString(cookieStr))
                                         Toast.makeText(context, "完整 Cookie 已复制 (含 CSRF)", Toast.LENGTH_SHORT).show()
                                     },
@@ -180,15 +189,11 @@ fun HomeScreen(
         }
     }
 
-    // =========================================================
-    // 2. 手动输入 Cookie 弹窗
-    // =========================================================
+    // 2. 手动 Cookie 输入弹窗
     if (showManualCookieInput) {
         var cookieText by remember { mutableStateOf("") }
         Dialog(onDismissRequest = { showManualCookieInput = false }) {
-            Card(modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)) {
+            Card(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("添加新账号", style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(8.dp))
@@ -222,9 +227,7 @@ fun HomeScreen(
         }
     }
 
-    // =========================================================
-    // 3. AI 字幕弹窗
-    // =========================================================
+    // 3. 字幕详情与预览弹窗
     if (showSubtitleDialog && state is MainState.ChoiceSelect) {
         SubtitleDialog(
             currentState = state as MainState.ChoiceSelect,
@@ -236,6 +239,8 @@ fun HomeScreen(
             }
         )
     }
+
+    // endregion
 
     Scaffold(
         topBar = {
@@ -279,6 +284,7 @@ fun HomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             when (val currentState = state) {
+                // 1. 空闲状态：输入框 + 历史记录
                 is MainState.Idle -> {
                     OutlinedTextField(
                         value = inputText,
@@ -312,10 +318,12 @@ fun HomeScreen(
                     }
                 }
 
+                // 2. 解析中
                 is MainState.Analyzing -> {
                     CircularProgressIndicator(modifier = Modifier.padding(top = 100.dp))
                 }
 
+                // 3. 结果选择页
                 is MainState.ChoiceSelect -> {
                     Column(
                         modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -351,6 +359,7 @@ fun HomeScreen(
                     }
                 }
 
+                // 4. 下载处理中
                 is MainState.Processing -> {
                     Column(modifier = Modifier.padding(top = 100.dp).padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(currentState.info, style = MaterialTheme.typography.bodyLarge)
@@ -366,6 +375,7 @@ fun HomeScreen(
                     }
                 }
 
+                // 5. 成功/失败
                 is MainState.Success -> {
                     Column(modifier = Modifier.padding(top = 100.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("🎉 ${currentState.message}", color = MaterialTheme.colorScheme.primary)
@@ -383,7 +393,7 @@ fun HomeScreen(
     }
 }
 
-// ... (SubtitleDialog, QualitySelector 等保持不变)
+// region Sub-Components (辅助组件)
 
 @Composable
 fun SubtitleDialog(
@@ -395,6 +405,7 @@ fun SubtitleDialog(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
 
+    // 处理临时错误消息
     if (currentState.subtitleContent.startsWith("ERROR:")) {
         val errorMsg = currentState.subtitleContent.removePrefix("ERROR:")
         LaunchedEffect(errorMsg) {
@@ -413,6 +424,7 @@ fun SubtitleDialog(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -441,6 +453,7 @@ fun SubtitleDialog(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
+                // Content
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     if (currentState.isSubtitleLoading) {
                         CircularProgressIndicator()
@@ -469,6 +482,7 @@ fun SubtitleDialog(
                     }
                 }
 
+                // Footer
                 if (currentState.subtitleData != null) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -527,3 +541,5 @@ fun QualitySelector(label: String, options: List<FormatOption>, selectedOption: 
         }
     }
 }
+
+// endregion

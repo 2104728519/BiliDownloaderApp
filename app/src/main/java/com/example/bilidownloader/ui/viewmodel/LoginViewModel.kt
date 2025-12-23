@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-// ... (LoginState 定义保持不变)
+// 登录状态机
 sealed class LoginState {
     object Idle : LoginState()
     object Loading : LoginState()
@@ -23,6 +23,15 @@ sealed class LoginState {
     data class Error(val message: String) : LoginState()
 }
 
+/**
+ * 登录流程 ViewModel.
+ *
+ * 核心难点解决：
+ * **Cookie 预热 (Preheat)**：
+ * B 站的风控机制要求客户端在发起短信验证码请求前，必须持有有效的 `buvid3` (设备指纹)。
+ * 该 ViewModel 在初始化时会预先请求一次 Nav 接口，确保 `ReceivedCookieInterceptor`
+ * 捕获并保存了 `buvid3`，从而避免“请更新 App”或 -400 错误。
+ */
 class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
     private val TAG = "LoginViewModel"
@@ -40,17 +49,15 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     private var currentGeetestChallenge: String = ""
     private var currentSmsKey: String = ""
 
-    // 【新增】初始化时预先请求一次 B 站接口，获取指纹 Cookie (buvid3)
-    // 这一步对于绕过“请下载最新App”的错误至关重要
     init {
         preheatCookies()
     }
 
+    /** 预热 Cookie 以获取 buvid3 */
     private fun preheatCookies() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 Log.d(TAG, "正在预热 Cookie (获取 buvid)...")
-                // getNavInfo 会返回 buvid3 和 b_nut，RetrofitClient 会自动保存
                 NetworkModule.biliService.getNavInfo().execute()
                 Log.d(TAG, "Cookie 预热完成")
             } catch (e: Exception) {
@@ -59,6 +66,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Step 1: 请求验证码参数 (含极验 Challenge) */
     fun fetchCaptcha(phone: String) {
         if (phone.length != 11) {
             _loginState.value = LoginState.Error("请输入正确的11位手机号")
@@ -68,8 +76,6 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             _loginState.value = LoginState.Loading
-            Log.d(TAG, "Step 1: 开始获取验证码参数...")
-
             try {
                 val response = NetworkModule.biliService.getCaptcha().execute()
                 val body = response.body()
@@ -78,11 +84,10 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     currentCaptchaToken = body.data.token
                     currentGeetestChallenge = body.data.geetest.challenge
 
-                    // 检查一下是否有 buvid，如果没有再尝试获取一次（双重保险）
+                    // 双重保险：再次检查 buvid
                     val currentCookie = CookieManager.getCookie(getApplication())
                     if (currentCookie?.contains("buvid") != true) {
-                        Log.w(TAG, "警告：请求验证码时仍未发现 buvid，尝试紧急补救...")
-                        NetworkModule.biliService.getNavInfo().execute() // 再次尝试获取
+                        NetworkModule.biliService.getNavInfo().execute()
                     }
 
                     _loginState.value = LoginState.CaptchaRequired(body.data.geetest)
@@ -90,40 +95,24 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     _loginState.value = LoginState.Error("获取验证码失败: ${body?.message}")
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
-                _loginState.value = LoginState.Error("网络错误(Step1): ${e.message}")
+                _loginState.value = LoginState.Error("网络错误: ${e.message}")
             }
         }
     }
 
-    // 【修改】接收 webViewCookie 参数，并执行同步和检查
+    /** Step 2: 极验成功，发送短信 */
     fun onGeetestSuccess(validate: String, seccode: String, webViewCookie: String) {
         Log.d(TAG, "Step 2: 极验验证成功。validate=$validate")
 
-        // 【核心操作】将 WebView 的 Cookie 同步到我们的 CookieManager
+        // 将 WebView 生成的 Cookie (可能包含更新的指纹) 合并到本地
         if (webViewCookie.isNotEmpty()) {
-            // WebView 的 Cookie 格式是 "key=value; key2=value2"
-            // 我们将其分割成列表保存
             val cookieList = webViewCookie.split(";").map { it.trim() }
             CookieManager.saveCookies(getApplication(), cookieList)
-            Log.d(TAG, "【检查点 A】WebView Cookie 已同步: $webViewCookie")
-        } else {
-            Log.w(TAG, "【检查点 A 警告】WebView 未返回 Cookie！")
         }
 
         _loginState.value = LoginState.Loading
 
         viewModelScope.launch(Dispatchers.IO) {
-            // 【检查点 B】打印发送请求前，Retrofit 即将使用的 Cookie
-            val currentStoredCookie = CookieManager.getCookie(getApplication())
-            Log.d(TAG, "【检查点 B】发送短信前的最终 Cookie: $currentStoredCookie")
-
-            // 检查 buvid3 是否存在
-            if (currentStoredCookie?.contains("buvid3") != true) {
-                Log.e(TAG, "【致命错误】Cookie 中缺失 buvid3，请求必定失败！")
-            }
-
-            Log.d(TAG, "Step 2: 正在请求发送短信 API...")
             try {
                 val response = NetworkModule.biliService.sendSmsCode(
                     cid = 86,
@@ -135,38 +124,32 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 ).execute()
 
                 val body = response.body()
-                Log.d(TAG, "Step 2 响应: code=${body?.code}, msg=${body?.message}")
-
                 if (body?.code == 0 && body.data != null) {
                     currentSmsKey = body.data.captcha_key
                     _loginState.value = LoginState.SmsSent
                     startTimer()
                 } else {
-                    Log.e(TAG, "Step 2 失败: ${body?.message}")
                     _loginState.value = LoginState.Error("短信发送失败: ${body?.message}")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Step 2 异常: ${e.message}")
                 _loginState.value = LoginState.Error("发送短信异常: ${e.message}")
             }
         }
     }
 
     fun onGeetestClose() {
-        Log.d(TAG, "用户关闭了极验窗口")
         if (_loginState.value is LoginState.CaptchaRequired) {
             _loginState.value = LoginState.Idle
         }
     }
 
     fun onGeetestError(msg: String) {
-        Log.e(TAG, "极验组件报错: $msg")
         _loginState.value = LoginState.Error("验证组件错误: $msg")
     }
 
+    /** Step 3: 验证短信码并登录 */
     fun login(smsCode: String) {
         if (smsCode.isEmpty()) return
-        Log.d(TAG, "Step 3: 开始尝试登录，验证码: $smsCode")
 
         viewModelScope.launch(Dispatchers.IO) {
             _loginState.value = LoginState.Loading
@@ -179,14 +162,10 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 ).execute()
 
                 val body = response.body()
-                Log.d(TAG, "Step 3 响应: code=${body?.code}, msg=${body?.message}")
-
                 if (body?.code == 0) {
-                    val headers = response.headers()
-                    val cookies = headers.values("Set-Cookie")
-
+                    // 从 Response Header 提取关键的 Set-Cookie
+                    val cookies = response.headers().values("Set-Cookie")
                     if (cookies.isNotEmpty()) {
-                        // 使用新的保存方法
                         CookieManager.saveCookies(getApplication(), cookies)
                         _loginState.value = LoginState.Success
                     } else {

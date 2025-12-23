@@ -15,6 +15,16 @@ import com.example.bilidownloader.ui.components.GeetestWebView
 import com.example.bilidownloader.ui.viewmodel.LoginState
 import com.example.bilidownloader.ui.viewmodel.LoginViewModel
 
+/**
+ * 短信验证码登录页面.
+ *
+ * 登录流程：
+ * 1. 用户输入手机号。
+ * 2. 点击获取验证码 -> 触发 `fetchCaptcha` -> 状态变为 `CaptchaRequired`。
+ * 3. 弹出全屏 `GeetestWebView`，用户完成滑块/文字点选验证。
+ * 4. 验证成功 -> 回调 ViewModel -> 状态变为 `Loading` -> 调用 B 站发送短信 API。
+ * 5. 用户输入短信验证码 -> 点击登录 -> 状态变为 `Success` -> 返回主页。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
@@ -29,11 +39,10 @@ fun LoginScreen(
     var code by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // 监听状态变化
     LaunchedEffect(state) {
         if (state is LoginState.Success) {
             snackbarHostState.showSnackbar("登录成功！")
-            onBack() // 返回首页
+            onBack()
         } else if (state is LoginState.Error) {
             snackbarHostState.showSnackbar((state as LoginState.Error).message)
         }
@@ -67,7 +76,7 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(48.dp))
 
-                // 手机号输入
+                // 手机号
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { if (it.length <= 11) phone = it },
@@ -79,7 +88,7 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 验证码区域
+                // 验证码
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -121,13 +130,14 @@ fun LoginScreen(
             }
         }
 
-        // 极验弹窗 (当状态为 CaptchaRequired 时覆盖在最上层)
+        // 覆盖在最上层的极验 WebView
         if (state is LoginState.CaptchaRequired) {
             val geetestInfo = (state as LoginState.CaptchaRequired).geetestInfo
             GeetestWebView(
                 geetestInfo = geetestInfo,
-                onSuccess = { validate, seccode, cookie -> // <--- 【修改】增加 cookie 参数
-                    viewModel.onGeetestSuccess(validate, seccode, cookie) // <--- 【修改】传递给 ViewModel
+                onSuccess = { validate, seccode, cookie ->
+                    // 将验证结果和 WebView 捕获的 Cookie 一并传回
+                    viewModel.onGeetestSuccess(validate, seccode, cookie)
                 },
                 onError = { msg ->
                     viewModel.onGeetestError(msg)

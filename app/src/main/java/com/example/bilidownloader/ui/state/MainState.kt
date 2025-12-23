@@ -12,10 +12,17 @@ data class FormatOption(
     val estimatedSize: Long
 )
 
+/**
+ * 主页 UI 状态机.
+ */
 sealed class MainState {
     object Idle : MainState()
     object Analyzing : MainState()
 
+    /**
+     * 选择模式.
+     * 包含所有需要用户决策的数据：视频详情、可选画质、AI 字幕预览等.
+     */
     data class ChoiceSelect(
         val detail: VideoDetail,
         val videoFormats: List<FormatOption>,
@@ -23,12 +30,12 @@ sealed class MainState {
         val selectedVideo: FormatOption?,
         val selectedAudio: FormatOption?,
 
-        // --- 【新增】字幕相关状态 ---
-        val isSubtitleLoading: Boolean = false, // 是否正在请求字幕
-        val subtitleData: ConclusionData? = null, // 字幕原始数据
-        val selectedSubtitleIndex: Int = 0, // 当前选中的字幕索引 (因为可能有多个版本的字幕)
-        val isTimestampEnabled: Boolean = false, // 是否开启时间戳显示
-        val subtitleContent: String = "" // 当前预览/编辑框中的文本内容
+        // 字幕/摘要相关
+        val isSubtitleLoading: Boolean = false,
+        val subtitleData: ConclusionData? = null,
+        val selectedSubtitleIndex: Int = 0,
+        val isTimestampEnabled: Boolean = false,
+        val subtitleContent: String = ""
     ) : MainState()
 
     data class Processing(val info: String, val progress: Float) : MainState()

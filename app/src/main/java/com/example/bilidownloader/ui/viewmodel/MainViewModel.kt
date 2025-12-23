@@ -32,6 +32,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * 主页 ViewModel.
+ *
+ * 职责：
+ * 1. **状态流转**：维护 [MainState]，控制 UI 从 Idle -> Analyzing -> Choice -> Processing 的变化。
+ * 2. **账号管理**：处理登录 Cookie 的解析、持久化和 CSRF 捕获。
+ * 3. **服务通信**：启动 [DownloadService] 并监听 [DownloadSession] 广播的进度。
+ */
 class MainViewModel(
     application: Application,
     private val historyRepository: HistoryRepository,
@@ -48,6 +56,7 @@ class MainViewModel(
     private val _state = MutableStateFlow<MainState>(MainState.Idle)
     val state = _state.asStateFlow()
 
+    // 将数据库 Flow 转换为 StateFlow，配置 5秒 超时以支持配置变更（旋转屏幕）时的状态保持
     val historyList = historyRepository.allHistory.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -74,6 +83,7 @@ class MainViewModel(
     private var savedAudioOption: FormatOption? = null
 
     init {
+        // 监听下载服务广播的状态
         viewModelScope.launch {
             DownloadSession.downloadState.collect { resource ->
                 when (resource) {
@@ -261,7 +271,7 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 3. 下载控制 (代码保持不变...)
+    // 3. 下载控制
     // ========================================================================
     fun startDownload(audioOnly: Boolean) {
         val vOpt = savedVideoOption
@@ -304,7 +314,7 @@ class MainViewModel(
     }
 
     // ========================================================================
-    // 4. 字幕与辅助功能 (保持不变...)
+    // 4. 字幕与辅助功能
     // ========================================================================
 
     fun fetchSubtitle() {

@@ -18,6 +18,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+/**
+ * 音频选择器 ViewModel.
+ *
+ * 核心挑战：处理 Android 10+ (Scoped Storage) 下的文件删除和重命名权限。
+ * 当应用试图修改非自己创建的文件时，系统会抛出 `RecoverableSecurityException`，
+ * 必须捕获该异常并通过 `startIntentSenderForResult` 请求用户授权。
+ */
 class AudioPickerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = MediaRepository(application)
@@ -25,16 +32,17 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
     private val _audioList = MutableStateFlow<List<AudioEntity>>(emptyList())
     val audioList = _audioList.asStateFlow()
 
+    // 内存缓存，用于支持无网络/快速搜索过滤
     private var allAudiosCache: List<AudioEntity> = emptyList()
     private var currentQuery: String = ""
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 
-    // 【新增】正序/倒序状态 (默认倒序 false，因为通常想看最新的)
     private val _isAscending = MutableStateFlow(false)
     val isAscending = _isAscending.asStateFlow()
 
+    // UI 状态保存 (防止屏幕旋转丢失滚动位置)
     var scrollIndex: Int = 0
     var scrollOffset: Int = 0
 
@@ -42,7 +50,7 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
 
     enum class SortType { DATE, SIZE, DURATION }
 
-    // --- 弹窗与操作状态 ---
+    // 权限请求相关状态
     var selectedAudioForAction: AudioEntity? by mutableStateOf(null)
     var showDeleteDialog by mutableStateOf(false)
     var showRenameDialog by mutableStateOf(false)
@@ -59,7 +67,6 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
                 val list = repository.getAllAudio()
                 allAudiosCache = list
                 currentQuery = ""
-                // 初始加载应用当前的排序规则
                 _audioList.value = sortList(list, currentSortType, _isAscending.value)
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -71,16 +78,13 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    // 纯内存过滤，无需重查数据库
     fun searchAudio(query: String) {
         currentQuery = query
-        val listToFilter = allAudiosCache
-
         val filteredList = if (query.isBlank()) {
-            listToFilter
+            allAudiosCache
         } else {
-            listToFilter.filter {
-                it.title.contains(query, ignoreCase = true)
-            }
+            allAudiosCache.filter { it.title.contains(query, ignoreCase = true) }
         }
         _audioList.value = sortList(filteredList, currentSortType, _isAscending.value)
     }
@@ -90,13 +94,11 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
         _audioList.value = sortList(_audioList.value, type, _isAscending.value)
     }
 
-    // 【新增】切换正序/倒序
     fun toggleSortOrder() {
         _isAscending.value = !_isAscending.value
         _audioList.value = sortList(_audioList.value, currentSortType, _isAscending.value)
     }
 
-    // 【修改】排序逻辑，增加 isAscending 参数
     private fun sortList(list: List<AudioEntity>, type: SortType, ascending: Boolean): List<AudioEntity> {
         return when (type) {
             SortType.DATE -> if (ascending) list.sortedBy { it.dateAdded } else list.sortedByDescending { it.dateAdded }
@@ -105,11 +107,7 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    // ... (以下代码保持不变：permissionRequestHandled, deleteSelectedAudio, renameSelectedAudio, handleStorageResult, onPermissionGranted, updateListInMemory, shareAudio) ...
-
-    fun permissionRequestHandled() {
-        pendingPermissionIntent = null
-    }
+    // region Scoped Storage Permission Handling (分区存储权限处理)
 
     fun deleteSelectedAudio() {
         val audio = selectedAudioForAction ?: return
@@ -143,26 +141,28 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
                 lastRenameNewName = null
             }
             is StorageHelper.StorageResult.RequiresPermission -> {
+                // 将 IntentSender 暴露给 Activity/Composable 启动
                 pendingPermissionIntent = result.intentSender
             }
             is StorageHelper.StorageResult.Error -> {
                 Toast.makeText(getApplication(), "操作失败", Toast.LENGTH_SHORT).show()
                 selectedAudioForAction = null
-                lastAction = null
-                lastRenameNewName = null
             }
         }
     }
 
+    /**
+     * UI 层处理完权限请求回调后，调用此方法重试之前的操作.
+     */
     fun onPermissionGranted() {
+        // 重试逻辑...
         val audio = selectedAudioForAction ?: return
-
         viewModelScope.launch {
             if (lastAction == ActionType.DELETE) {
+                // Android 11+ (R) 删除文件不直接返回行数，需再次检查文件是否存在
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     kotlinx.coroutines.delay(200)
-                    val exists = StorageHelper.isFileExisting(getApplication(), audio.uri)
-                    if (!exists) {
+                    if (!StorageHelper.isFileExisting(getApplication(), audio.uri)) {
                         handleStorageResult(StorageHelper.StorageResult.Success)
                     } else {
                         handleStorageResult(StorageHelper.StorageResult.Error)
@@ -176,22 +176,24 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun permissionRequestHandled() {
+        pendingPermissionIntent = null
+    }
+
     private fun updateListInMemory() {
         val audioToUpdate = selectedAudioForAction ?: return
-
         if (lastAction == ActionType.DELETE) {
             allAudiosCache = allAudiosCache.filter { it.id != audioToUpdate.id }
             _audioList.value = _audioList.value.filter { it.id != audioToUpdate.id }
         } else if (lastAction == ActionType.RENAME) {
             val newName = lastRenameNewName ?: return
-            allAudiosCache = allAudiosCache.map {
-                if (it.id == audioToUpdate.id) it.copy(title = newName) else it
-            }
-            _audioList.value = _audioList.value.map {
-                if (it.id == audioToUpdate.id) it.copy(title = newName) else it
-            }
+            val mapper = { it: AudioEntity -> if (it.id == audioToUpdate.id) it.copy(title = newName) else it }
+            allAudiosCache = allAudiosCache.map(mapper)
+            _audioList.value = _audioList.value.map(mapper)
         }
     }
+
+    // endregion
 
     fun shareAudio(context: Context, audio: AudioEntity) {
         try {
@@ -200,13 +202,10 @@ class AudioPickerViewModel(application: Application) : AndroidViewModel(applicat
                 putExtra(Intent.EXTRA_STREAM, audio.uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            val chooser = Intent.createChooser(shareIntent, "分享音频到")
-            if (context !is android.app.Activity) {
-                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(chooser)
+            context.startActivity(Intent.createChooser(shareIntent, "分享音频到").apply {
+                if (context !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
         } catch (e: Exception) {
-            e.printStackTrace()
             Toast.makeText(context, "无法分享：找不到相关应用", Toast.LENGTH_SHORT).show()
         }
     }
