@@ -1,4 +1,4 @@
-package com.example.bilidownloader.data.model
+package com.example.bilidownloader.core.model
 
 import android.net.Uri
 import com.example.bilidownloader.core.util.DateUtils

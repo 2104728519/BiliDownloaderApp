@@ -1,8 +1,8 @@
 package com.example.bilidownloader.domain.usecase
 
 import com.example.bilidownloader.core.common.Resource
-import com.example.bilidownloader.data.api.BiliApiService
-import com.example.bilidownloader.data.model.ConclusionData
+import com.example.bilidownloader.core.network.api.BiliApiService
+import com.example.bilidownloader.core.model.ConclusionData
 import com.example.bilidownloader.data.repository.SubtitleRepository
 import com.example.bilidownloader.core.util.BiliSigner
 import kotlinx.coroutines.Dispatchers

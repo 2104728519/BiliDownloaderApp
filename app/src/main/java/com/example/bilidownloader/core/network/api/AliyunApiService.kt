@@ -1,8 +1,8 @@
-package com.example.bilidownloader.data.api
+package com.example.bilidownloader.core.network.api
 
-import com.example.bilidownloader.data.model.TranscriptionRequest
-import com.example.bilidownloader.data.model.TranscriptionResponse
-import com.example.bilidownloader.data.model.TranscriptionResultData
+import com.example.bilidownloader.core.model.TranscriptionRequest
+import com.example.bilidownloader.core.model.TranscriptionResponse
+import com.example.bilidownloader.core.model.TranscriptionResultData
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header

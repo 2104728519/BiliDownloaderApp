@@ -3,11 +3,11 @@ package com.example.bilidownloader.core.network
 import android.annotation.SuppressLint
 import android.content.Context
 import com.example.bilidownloader.core.common.Constants
-import com.example.bilidownloader.data.api.AliyunApiService
-import com.example.bilidownloader.data.api.BiliApiService
-import com.example.bilidownloader.data.api.ConsoleApiService
-import com.example.bilidownloader.data.api.GeminiApiService
-import com.example.bilidownloader.data.api.DeepSeekApiService
+import com.example.bilidownloader.core.network.api.AliyunApiService
+import com.example.bilidownloader.core.network.api.BiliApiService
+import com.example.bilidownloader.core.network.api.ConsoleApiService
+import com.example.bilidownloader.core.network.api.GeminiApiService
+import com.example.bilidownloader.core.network.api.DeepSeekApiService
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit

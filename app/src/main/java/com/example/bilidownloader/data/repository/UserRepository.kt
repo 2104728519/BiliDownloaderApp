@@ -1,7 +1,7 @@
 package com.example.bilidownloader.data.repository
 
-import com.example.bilidownloader.data.database.UserDao
-import com.example.bilidownloader.data.database.UserEntity
+import com.example.bilidownloader.core.database.UserDao
+import com.example.bilidownloader.core.database.UserEntity
 import kotlinx.coroutines.flow.Flow
 
 /**

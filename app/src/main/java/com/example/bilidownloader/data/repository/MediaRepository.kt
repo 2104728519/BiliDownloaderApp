@@ -3,7 +3,7 @@ package com.example.bilidownloader.data.repository
 import android.content.ContentUris
 import android.content.Context
 import android.provider.MediaStore
-import com.example.bilidownloader.data.model.AudioEntity
+import com.example.bilidownloader.core.model.AudioEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

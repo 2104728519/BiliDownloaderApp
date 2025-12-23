@@ -5,7 +5,7 @@ import android.os.CountDownTimer
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bilidownloader.data.model.GeetestInfo
+import com.example.bilidownloader.core.model.GeetestInfo
 import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.network.NetworkModule
 import kotlinx.coroutines.Dispatchers

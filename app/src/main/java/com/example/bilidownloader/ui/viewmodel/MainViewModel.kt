@@ -9,10 +9,10 @@ import androidx.lifecycle.viewModelScope
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.data.database.HistoryEntity
-import com.example.bilidownloader.data.database.UserEntity
-import com.example.bilidownloader.data.model.ConclusionData
-import com.example.bilidownloader.data.model.VideoDetail
+import com.example.bilidownloader.core.database.HistoryEntity
+import com.example.bilidownloader.core.database.UserEntity
+import com.example.bilidownloader.core.model.ConclusionData
+import com.example.bilidownloader.core.model.VideoDetail
 import com.example.bilidownloader.data.repository.DownloadSession
 import com.example.bilidownloader.data.repository.HistoryRepository
 import com.example.bilidownloader.data.repository.UserRepository

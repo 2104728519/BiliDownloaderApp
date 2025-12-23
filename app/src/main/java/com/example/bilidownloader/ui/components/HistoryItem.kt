@@ -14,7 +14,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.bilidownloader.data.database.HistoryEntity
+import com.example.bilidownloader.core.database.HistoryEntity
 import com.example.bilidownloader.core.util.DateUtils
 
 /**

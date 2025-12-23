@@ -1,6 +1,16 @@
-package com.example.bilidownloader.data.api
+package com.example.bilidownloader.core.network.api
 
-import com.example.bilidownloader.data.model.*
+import com.example.bilidownloader.core.model.BiliResponse
+import com.example.bilidownloader.core.model.CaptchaResult
+import com.example.bilidownloader.core.model.ConclusionResponse
+import com.example.bilidownloader.core.model.LoginResponseData
+import com.example.bilidownloader.core.model.NavData
+import com.example.bilidownloader.core.model.PlayData
+import com.example.bilidownloader.core.model.PlayerV2Response
+import com.example.bilidownloader.core.model.RawSubtitleJson
+import com.example.bilidownloader.core.model.RecommendResponse
+import com.example.bilidownloader.core.model.SmsSendResponse
+import com.example.bilidownloader.core.model.VideoDetail
 import retrofit2.Call
 import retrofit2.http.*
 

@@ -2,7 +2,7 @@ package com.example.bilidownloader.di
 
 import android.content.Context
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.data.database.AppDatabase
+import com.example.bilidownloader.core.database.AppDatabase
 import com.example.bilidownloader.data.repository.*
 import com.example.bilidownloader.domain.usecase.*
 

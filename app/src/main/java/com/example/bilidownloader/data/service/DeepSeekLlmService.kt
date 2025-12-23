@@ -3,8 +3,8 @@ package com.example.bilidownloader.data.service
 import com.example.bilidownloader.BuildConfig
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.data.model.OpenAiMessage
-import com.example.bilidownloader.data.model.OpenAiRequest
+import com.example.bilidownloader.core.model.OpenAiMessage
+import com.example.bilidownloader.core.model.OpenAiRequest
 import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.AiProvider
 import kotlinx.coroutines.Dispatchers

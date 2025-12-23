@@ -3,8 +3,8 @@ package com.example.bilidownloader.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bilidownloader.data.model.TranscriptionInput
-import com.example.bilidownloader.data.model.TranscriptionRequest
+import com.example.bilidownloader.core.model.TranscriptionInput
+import com.example.bilidownloader.core.model.TranscriptionRequest
 import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.util.ConsoleScraper

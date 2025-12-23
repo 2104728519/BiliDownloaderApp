@@ -4,10 +4,10 @@ import com.example.bilidownloader.BuildConfig
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.util.RateLimitHelper
-import com.example.bilidownloader.data.model.GeminiContent
-import com.example.bilidownloader.data.model.GeminiPart
-import com.example.bilidownloader.data.model.GeminiRequest
-import com.example.bilidownloader.data.model.GeminiConfig
+import com.example.bilidownloader.core.model.GeminiContent
+import com.example.bilidownloader.core.model.GeminiPart
+import com.example.bilidownloader.core.model.GeminiRequest
+import com.example.bilidownloader.core.model.GeminiConfig
 import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.AiProvider
 import kotlinx.coroutines.Dispatchers

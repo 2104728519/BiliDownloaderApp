@@ -1,4 +1,4 @@
-package com.example.bilidownloader.data.database
+package com.example.bilidownloader.core.database
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey

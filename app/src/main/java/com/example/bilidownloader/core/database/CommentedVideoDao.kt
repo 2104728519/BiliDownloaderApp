@@ -1,4 +1,4 @@
-package com.example.bilidownloader.data.database
+package com.example.bilidownloader.core.database
 
 import androidx.room.Dao
 import androidx.room.Insert

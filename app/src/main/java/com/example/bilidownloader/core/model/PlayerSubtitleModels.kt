@@ -1,4 +1,4 @@
-package com.example.bilidownloader.data.model
+package com.example.bilidownloader.core.model
 
 import com.google.gson.annotations.SerializedName
 

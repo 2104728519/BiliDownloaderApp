@@ -4,8 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.util.RateLimitHelper
-import com.example.bilidownloader.data.model.CandidateVideo
-import com.example.bilidownloader.data.model.ConclusionData
+import com.example.bilidownloader.core.model.CandidateVideo
+import com.example.bilidownloader.core.model.ConclusionData
 import com.example.bilidownloader.data.repository.RecommendRepository
 import com.example.bilidownloader.data.repository.StyleRepository
 import com.example.bilidownloader.domain.usecase.AnalyzeVideoUseCase

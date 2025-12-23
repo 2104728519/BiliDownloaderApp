@@ -2,8 +2,12 @@ package com.example.bilidownloader.data.repository
 
 import android.util.Log
 import com.example.bilidownloader.core.common.Resource
-import com.example.bilidownloader.data.api.BiliApiService
-import com.example.bilidownloader.data.model.*
+import com.example.bilidownloader.core.model.ConclusionData
+import com.example.bilidownloader.core.model.ModelResult
+import com.example.bilidownloader.core.model.PartSubtitleItem
+import com.example.bilidownloader.core.model.RawSubtitleJson
+import com.example.bilidownloader.core.model.SubtitleContainer
+import com.example.bilidownloader.core.network.api.BiliApiService
 import com.example.bilidownloader.core.util.BiliSigner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

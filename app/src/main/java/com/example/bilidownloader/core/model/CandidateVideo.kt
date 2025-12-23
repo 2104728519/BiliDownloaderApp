@@ -1,4 +1,4 @@
-package com.example.bilidownloader.data.model
+package com.example.bilidownloader.core.model
 
 /**
  * 业务模型：自动化评论的候选视频.

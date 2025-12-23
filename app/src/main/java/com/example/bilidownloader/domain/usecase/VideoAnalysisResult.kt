@@ -1,6 +1,6 @@
 package com.example.bilidownloader.domain.usecase
 
-import com.example.bilidownloader.data.model.VideoDetail
+import com.example.bilidownloader.core.model.VideoDetail
 import com.example.bilidownloader.ui.state.FormatOption
 
 /**

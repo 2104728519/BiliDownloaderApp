@@ -21,7 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.bilidownloader.core.common.Constants
-import com.example.bilidownloader.data.model.GeetestInfo
+import com.example.bilidownloader.core.model.GeetestInfo
 
 /**
  * 极验验证码 WebView 组件.

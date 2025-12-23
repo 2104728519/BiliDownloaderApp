@@ -1,4 +1,4 @@
-package com.example.bilidownloader.data.model
+package com.example.bilidownloader.core.model
 
 /**
  * 首页推荐流响应结构.

@@ -1,6 +1,6 @@
-package com.example.bilidownloader.data.api
+package com.example.bilidownloader.core.network.api
 
-import com.example.bilidownloader.data.model.ConsoleResponse
+import com.example.bilidownloader.core.model.ConsoleResponse
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.Header

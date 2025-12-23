@@ -1,7 +1,11 @@
 package com.example.bilidownloader.core.util
 
+import com.example.bilidownloader.core.model.ConsoleParams
+import com.example.bilidownloader.core.model.ConsoleRequestData
+import com.example.bilidownloader.core.model.CornerstoneParam
+import com.example.bilidownloader.core.model.LabelFilters
+import com.example.bilidownloader.core.model.ReqDTO
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.data.model.*
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

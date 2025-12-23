@@ -2,7 +2,7 @@ package com.example.bilidownloader.domain.usecase
 
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.data.database.HistoryEntity
+import com.example.bilidownloader.core.database.HistoryEntity
 import com.example.bilidownloader.data.repository.HistoryRepository
 import com.example.bilidownloader.ui.state.FormatOption
 import com.example.bilidownloader.core.util.BiliSigner

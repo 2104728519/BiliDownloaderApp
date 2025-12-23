@@ -1,7 +1,7 @@
-package com.example.bilidownloader.data.api
+package com.example.bilidownloader.core.network.api
 
-import com.example.bilidownloader.data.model.GeminiRequest
-import com.example.bilidownloader.data.model.GeminiResponse
+import com.example.bilidownloader.core.model.GeminiRequest
+import com.example.bilidownloader.core.model.GeminiResponse
 import retrofit2.http.Body
 import retrofit2.http.POST
 import retrofit2.http.Path

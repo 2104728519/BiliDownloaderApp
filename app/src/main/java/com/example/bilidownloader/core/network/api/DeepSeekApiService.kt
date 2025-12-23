@@ -1,7 +1,7 @@
-package com.example.bilidownloader.data.api
+package com.example.bilidownloader.core.network.api
 
-import com.example.bilidownloader.data.model.OpenAiRequest
-import com.example.bilidownloader.data.model.OpenAiResponse
+import com.example.bilidownloader.core.model.OpenAiRequest
+import com.example.bilidownloader.core.model.OpenAiResponse
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST

@@ -36,8 +36,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.bilidownloader.data.database.HistoryEntity
-import com.example.bilidownloader.data.database.UserEntity
+import com.example.bilidownloader.core.database.HistoryEntity
+import com.example.bilidownloader.core.database.UserEntity
 import com.example.bilidownloader.di.AppViewModelProvider
 import com.example.bilidownloader.ui.components.BiliWebPlayer
 import com.example.bilidownloader.ui.components.HistoryItem

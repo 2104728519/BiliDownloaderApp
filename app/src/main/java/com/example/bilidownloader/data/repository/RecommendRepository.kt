@@ -4,9 +4,9 @@ import android.content.Context
 import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.data.database.CommentedVideoDao
-import com.example.bilidownloader.data.database.CommentedVideoEntity
-import com.example.bilidownloader.data.model.RecommendItem
+import com.example.bilidownloader.core.database.CommentedVideoDao
+import com.example.bilidownloader.core.database.CommentedVideoEntity
+import com.example.bilidownloader.core.model.RecommendItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

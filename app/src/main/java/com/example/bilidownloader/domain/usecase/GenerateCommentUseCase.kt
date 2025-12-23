@@ -1,7 +1,7 @@
 package com.example.bilidownloader.domain.usecase
 
 import com.example.bilidownloader.core.common.Resource
-import com.example.bilidownloader.data.model.ConclusionData
+import com.example.bilidownloader.core.model.ConclusionData
 import com.example.bilidownloader.data.repository.LlmRepository
 import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.CommentStyle

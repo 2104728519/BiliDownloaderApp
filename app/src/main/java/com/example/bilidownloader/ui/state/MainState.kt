@@ -1,7 +1,7 @@
 package com.example.bilidownloader.ui.state
 
-import com.example.bilidownloader.data.model.ConclusionData
-import com.example.bilidownloader.data.model.VideoDetail
+import com.example.bilidownloader.core.model.ConclusionData
+import com.example.bilidownloader.core.model.VideoDetail
 
 data class FormatOption(
     val id: Int,
