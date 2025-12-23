@@ -1,19 +1,16 @@
 package com.example.bilidownloader.di
 
 import android.content.Context
-import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.database.AppDatabase
+import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.repository.*
 import com.example.bilidownloader.domain.usecase.*
+import com.example.bilidownloader.features.login.AuthRepository // 新引用
 
-/**
- * 依赖注入容器接口.
- * 定义应用中所有 Repository 和 UseCase 的单例获取方式.
- */
 interface AppContainer {
     // Repositories
     val historyRepository: HistoryRepository
-    val userRepository: UserRepository
+    val authRepository: AuthRepository // 重命名
     val downloadRepository: DownloadRepository
     val subtitleRepository: SubtitleRepository
     val mediaRepository: MediaRepository
@@ -22,7 +19,7 @@ interface AppContainer {
     val recommendRepository: RecommendRepository
     val styleRepository: StyleRepository
 
-    // UseCases (业务逻辑单元)
+    // UseCases
     val analyzeVideoUseCase: AnalyzeVideoUseCase
     val downloadVideoUseCase: DownloadVideoUseCase
     val getSubtitleUseCase: GetSubtitleUseCase
@@ -32,10 +29,6 @@ interface AppContainer {
     val getRecommendedVideosUseCase: GetRecommendedVideosUseCase
 }
 
-/**
- * 手动依赖注入容器的具体实现.
- * 使用 `lazy` 委托实现懒加载单例模式，仅在首次使用时初始化对象。
- */
 class DefaultAppContainer(private val context: Context) : AppContainer {
 
     private val database by lazy {
@@ -54,8 +47,9 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         HistoryRepository(database.historyDao())
     }
 
-    override val userRepository by lazy {
-        UserRepository(database.userDao())
+    // 更新 AuthRepository 的实例化
+    override val authRepository by lazy {
+        AuthRepository(context, database.userDao())
     }
 
     override val downloadRepository by lazy {

@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.screen
+package com.example.bilidownloader.features.login
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -11,25 +11,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.bilidownloader.ui.components.GeetestWebView
-import com.example.bilidownloader.ui.viewmodel.LoginState
-import com.example.bilidownloader.ui.viewmodel.LoginViewModel
+import com.example.bilidownloader.di.AppViewModelProvider // <--- 【关键】导入工厂
 
-/**
- * 短信验证码登录页面.
- *
- * 登录流程：
- * 1. 用户输入手机号。
- * 2. 点击获取验证码 -> 触发 `fetchCaptcha` -> 状态变为 `CaptchaRequired`。
- * 3. 弹出全屏 `GeetestWebView`，用户完成滑块/文字点选验证。
- * 4. 验证成功 -> 回调 ViewModel -> 状态变为 `Loading` -> 调用 B 站发送短信 API。
- * 5. 用户输入短信验证码 -> 点击登录 -> 状态变为 `Success` -> 返回主页。
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     onBack: () -> Unit,
-    viewModel: LoginViewModel = viewModel()
+    // 【关键修复】这里必须指定 factory，否则无法注入 AuthRepository
+    viewModel: LoginViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
     val state by viewModel.loginState.collectAsState()
     val timerText by viewModel.timerText.collectAsState()
@@ -39,10 +28,11 @@ fun LoginScreen(
     var code by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // 监听状态变化
     LaunchedEffect(state) {
         if (state is LoginState.Success) {
             snackbarHostState.showSnackbar("登录成功！")
-            onBack()
+            onBack() // 返回首页
         } else if (state is LoginState.Error) {
             snackbarHostState.showSnackbar((state as LoginState.Error).message)
         }
@@ -76,7 +66,7 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(48.dp))
 
-                // 手机号
+                // 手机号输入
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { if (it.length <= 11) phone = it },
@@ -88,7 +78,7 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 验证码
+                // 验证码区域
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -130,13 +120,12 @@ fun LoginScreen(
             }
         }
 
-        // 覆盖在最上层的极验 WebView
+        // 极验弹窗 (当状态为 CaptchaRequired 时覆盖在最上层)
         if (state is LoginState.CaptchaRequired) {
             val geetestInfo = (state as LoginState.CaptchaRequired).geetestInfo
             GeetestWebView(
                 geetestInfo = geetestInfo,
                 onSuccess = { validate, seccode, cookie ->
-                    // 将验证结果和 WebView 捕获的 Cookie 一并传回
                     viewModel.onGeetestSuccess(validate, seccode, cookie)
                 },
                 onError = { msg ->

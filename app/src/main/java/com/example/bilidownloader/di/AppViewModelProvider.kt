@@ -5,16 +5,11 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.bilidownloader.MyApplication
+import com.example.bilidownloader.features.login.LoginViewModel // 新引用
 import com.example.bilidownloader.ui.viewmodel.AiCommentViewModel
 import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
 import com.example.bilidownloader.ui.viewmodel.MainViewModel
 
-/**
- * ViewModel 工厂配置.
- *
- * 负责在 ViewModel 创建时注入所需的 Repository 和 UseCase。
- * 替代了 Hilt/Dagger 的自动注入功能，适用于手动 DI 架构。
- */
 object AppViewModelProvider {
     val Factory = viewModelFactory {
 
@@ -24,11 +19,20 @@ object AppViewModelProvider {
             MainViewModel(
                 application = bilidownloaderApplication(),
                 historyRepository = container.historyRepository,
-                userRepository = container.userRepository,
+                authRepository = container.authRepository, // 更新引用
                 analyzeVideoUseCase = container.analyzeVideoUseCase,
                 downloadVideoUseCase = container.downloadVideoUseCase,
                 prepareTranscribeUseCase = container.prepareTranscribeUseCase,
                 getSubtitleUseCase = container.getSubtitleUseCase
+            )
+        }
+
+        // LoginViewModel 注入配置
+        initializer {
+            val container = bilidownloaderApplication().container
+            LoginViewModel(
+                application = bilidownloaderApplication(),
+                authRepository = container.authRepository // 注入仓库
             )
         }
 
@@ -55,8 +59,5 @@ object AppViewModelProvider {
     }
 }
 
-/**
- * 扩展函数：便捷获取 Application 实例.
- */
 fun CreationExtras.bilidownloaderApplication(): MyApplication =
     (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MyApplication)

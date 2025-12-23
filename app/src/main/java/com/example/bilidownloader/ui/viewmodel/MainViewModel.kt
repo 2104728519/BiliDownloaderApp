@@ -15,7 +15,7 @@ import com.example.bilidownloader.core.model.ConclusionData
 import com.example.bilidownloader.core.model.VideoDetail
 import com.example.bilidownloader.data.repository.DownloadSession
 import com.example.bilidownloader.data.repository.HistoryRepository
-import com.example.bilidownloader.data.repository.UserRepository
+import com.example.bilidownloader.features.login.AuthRepository
 import com.example.bilidownloader.domain.usecase.AnalyzeVideoUseCase
 import com.example.bilidownloader.domain.usecase.DownloadVideoUseCase
 import com.example.bilidownloader.domain.usecase.GetSubtitleUseCase
@@ -43,7 +43,7 @@ import kotlinx.coroutines.withContext
 class MainViewModel(
     application: Application,
     private val historyRepository: HistoryRepository,
-    private val userRepository: UserRepository,
+    private val authRepository: AuthRepository,
     private val analyzeVideoUseCase: AnalyzeVideoUseCase,
     private val downloadVideoUseCase: DownloadVideoUseCase,
     private val prepareTranscribeUseCase: PrepareTranscribeUseCase,
@@ -63,7 +63,7 @@ class MainViewModel(
         initialValue = emptyList()
     )
 
-    val userList = userRepository.allUsers.stateIn(
+    val userList = authRepository.allUsers.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
@@ -117,7 +117,7 @@ class MainViewModel(
     // ========================================================================
     private fun restoreSession() {
         viewModelScope.launch(Dispatchers.IO) {
-            val activeUser = userRepository.getCurrentUser()
+            val activeUser = authRepository.getCurrentUser()
             if (activeUser != null) {
                 CookieManager.saveCookies(getApplication(), listOf(activeUser.sessData))
                 _currentUser.value = activeUser
@@ -189,8 +189,8 @@ class MainViewModel(
                     )
 
                     // 6. 持久化到数据库
-                    userRepository.clearAllLoginStatus()
-                    userRepository.insertUser(newUser)
+                    authRepository.clearAllLoginStatus()
+                    authRepository.insertUser(newUser)
 
                     _currentUser.value = newUser
                     _isUserLoggedIn.value = true
@@ -217,8 +217,8 @@ class MainViewModel(
 
     fun switchAccount(user: UserEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            userRepository.clearAllLoginStatus()
-            userRepository.setLoginStatus(user.mid)
+            authRepository.clearAllLoginStatus()
+            authRepository.setLoginStatus(user.mid)
             CookieManager.saveCookies(getApplication(), listOf(user.sessData))
             _currentUser.value = user
             _isUserLoggedIn.value = true
@@ -227,7 +227,7 @@ class MainViewModel(
 
     fun quitToGuestMode() {
         viewModelScope.launch(Dispatchers.IO) {
-            userRepository.clearAllLoginStatus()
+            authRepository.clearAllLoginStatus()
             CookieManager.clearCookies(getApplication())
             _currentUser.value = null
             _isUserLoggedIn.value = false
@@ -236,7 +236,7 @@ class MainViewModel(
 
     fun logoutAndRemove(user: UserEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            userRepository.deleteUser(user)
+            authRepository.deleteUser(user)
             if (currentUser.value?.mid == user.mid) quitToGuestMode()
         }
     }

@@ -1,4 +1,4 @@
-package com.example.bilidownloader.core.model
+package com.example.bilidownloader.features.login
 
 // region 1. Captcha Info (人机验证)
 
