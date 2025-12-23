@@ -5,8 +5,8 @@ import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.model.OpenAiMessage
 import com.example.bilidownloader.core.model.OpenAiRequest
-import com.example.bilidownloader.domain.model.AiModelConfig
-import com.example.bilidownloader.domain.model.AiProvider
+import com.example.bilidownloader.core.model.AiModelConfig
+import com.example.bilidownloader.core.model.AiProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

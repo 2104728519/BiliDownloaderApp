@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.screen
+package com.example.bilidownloader.features.tools.transcription
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -21,7 +21,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.bilidownloader.ui.viewmodel.TranscriptionViewModel
 import com.example.bilidownloader.core.manager.CookieManager
 import java.io.File
 import java.net.URLDecoder

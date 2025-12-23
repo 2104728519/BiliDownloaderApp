@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.theme
+package com.example.bilidownloader.core.theme
 
 import androidx.compose.ui.graphics.Color
 

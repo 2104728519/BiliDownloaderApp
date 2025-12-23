@@ -32,8 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.bilidownloader.di.AppViewModelProvider
-import com.example.bilidownloader.domain.model.AiModelConfig
-import com.example.bilidownloader.domain.model.CommentStyle
+import com.example.bilidownloader.core.model.AiModelConfig
 
 /**
  * AI 评论助手主屏幕.

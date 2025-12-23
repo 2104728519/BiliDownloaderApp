@@ -8,8 +8,8 @@ import com.example.bilidownloader.MyApplication
 import com.example.bilidownloader.features.aicomment.AiCommentViewModel
 import com.example.bilidownloader.features.home.HomeViewModel
 import com.example.bilidownloader.features.login.LoginViewModel
-import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
-import com.example.bilidownloader.ui.viewmodel.TranscriptionViewModel
+import com.example.bilidownloader.features.tools.audiocrop.AudioPickerViewModel
+import com.example.bilidownloader.features.tools.transcription.TranscriptionViewModel
 
 object AppViewModelProvider {
     val Factory = viewModelFactory {

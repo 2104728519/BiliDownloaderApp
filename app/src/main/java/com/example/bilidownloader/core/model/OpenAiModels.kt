@@ -10,14 +10,14 @@ data class OpenAiRequest(
     val messages: List<OpenAiMessage>,
     val stream: Boolean = false,
     val temperature: Float = 1.0f,
-    // DeepSeek V3/R1 支持超长 Context，需适当调大
+
     @SerializedName("max_tokens") val maxTokens: Int = 8192
 )
 
 data class OpenAiMessage(
     val role: String, // "system", "user", "assistant"
     val content: String?,
-    // DeepSeek R1 专属字段：思维链内容
+    // 思维链内容
     @SerializedName("reasoning_content") val reasoningContent: String? = null
 )
 

@@ -6,8 +6,7 @@ import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.model.CandidateVideo
 import com.example.bilidownloader.core.model.ConclusionData
 import com.example.bilidownloader.core.util.RateLimitHelper
-import com.example.bilidownloader.domain.model.AiModelConfig
-import com.example.bilidownloader.domain.model.CommentStyle
+import com.example.bilidownloader.core.model.AiModelConfig
 import com.example.bilidownloader.features.home.HomeRepository // 【关键】引入 HomeRepository
 import com.example.bilidownloader.features.home.SubtitleRepository
 import kotlinx.coroutines.Job

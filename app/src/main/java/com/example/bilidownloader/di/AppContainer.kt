@@ -3,7 +3,7 @@ package com.example.bilidownloader.di
 import android.content.Context
 import com.example.bilidownloader.core.database.AppDatabase
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.data.repository.MediaRepository
+import com.example.bilidownloader.features.tools.audiocrop.MediaRepository
 import com.example.bilidownloader.features.aicomment.CommentRepository
 import com.example.bilidownloader.features.aicomment.LlmRepository
 import com.example.bilidownloader.features.aicomment.StyleRepository

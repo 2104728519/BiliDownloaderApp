@@ -1,4 +1,4 @@
-package com.example.bilidownloader.domain.model
+package com.example.bilidownloader.features.aicomment
 
 /**
  * 领域模型：评论风格.

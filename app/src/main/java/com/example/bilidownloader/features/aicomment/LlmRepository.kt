@@ -5,11 +5,8 @@ import com.example.bilidownloader.core.model.ConclusionData
 import com.example.bilidownloader.data.service.DeepSeekLlmService
 import com.example.bilidownloader.data.service.GoogleLlmService
 import com.example.bilidownloader.data.service.ILlmService
-import com.example.bilidownloader.domain.model.AiModelConfig
-import com.example.bilidownloader.domain.model.AiProvider
-
-
-import com.example.bilidownloader.domain.model.CommentStyle // 暂时保留 domain model 引用，后续可移
+import com.example.bilidownloader.core.model.AiModelConfig
+import com.example.bilidownloader.core.model.AiProvider
 
 /**
  * LLM (大模型) 聚合仓库.

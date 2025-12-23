@@ -1,8 +1,8 @@
 package com.example.bilidownloader.data.service
 
 import com.example.bilidownloader.core.common.Resource
-import com.example.bilidownloader.domain.model.AiModelConfig
-import com.example.bilidownloader.domain.model.AiProvider
+import com.example.bilidownloader.core.model.AiModelConfig
+import com.example.bilidownloader.core.model.AiProvider
 
 /**
  * LLM 服务标准接口.

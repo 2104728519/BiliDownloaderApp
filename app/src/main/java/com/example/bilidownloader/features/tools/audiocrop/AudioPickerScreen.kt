@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.screen
+package com.example.bilidownloader.features.tools.audiocrop
 
 import android.Manifest
 import android.app.Activity
@@ -36,7 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
 import kotlinx.coroutines.launch
 import kotlin.math.max
 
@@ -201,9 +200,12 @@ fun AudioPickerScreen(
                             expanded = showSortMenu,
                             onDismissRequest = { showSortMenu = false }
                         ) {
-                            DropdownMenuItem(text = { Text("按时间") }, onClick = { viewModel.changeSortType(AudioPickerViewModel.SortType.DATE); showSortMenu = false })
-                            DropdownMenuItem(text = { Text("按大小") }, onClick = { viewModel.changeSortType(AudioPickerViewModel.SortType.SIZE); showSortMenu = false })
-                            DropdownMenuItem(text = { Text("按时长") }, onClick = { viewModel.changeSortType(AudioPickerViewModel.SortType.DURATION); showSortMenu = false })
+                            DropdownMenuItem(text = { Text("按时间") }, onClick = { viewModel.changeSortType(
+                                AudioPickerViewModel.SortType.DATE); showSortMenu = false })
+                            DropdownMenuItem(text = { Text("按大小") }, onClick = { viewModel.changeSortType(
+                                AudioPickerViewModel.SortType.SIZE); showSortMenu = false })
+                            DropdownMenuItem(text = { Text("按时长") }, onClick = { viewModel.changeSortType(
+                                AudioPickerViewModel.SortType.DURATION); showSortMenu = false })
                             Divider()
                             DropdownMenuItem(
                                 text = {

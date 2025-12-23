@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.viewmodel
+package com.example.bilidownloader.features.tools.transcription
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel

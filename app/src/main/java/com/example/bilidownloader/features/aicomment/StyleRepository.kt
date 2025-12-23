@@ -2,7 +2,6 @@ package com.example.bilidownloader.features.aicomment
 
 import com.example.bilidownloader.core.database.CustomStyleDao
 import com.example.bilidownloader.core.database.CustomStyleEntity
-import com.example.bilidownloader.domain.model.CommentStyle
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 

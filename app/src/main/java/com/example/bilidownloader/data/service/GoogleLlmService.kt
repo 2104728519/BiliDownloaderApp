@@ -8,8 +8,8 @@ import com.example.bilidownloader.core.model.GeminiContent
 import com.example.bilidownloader.core.model.GeminiPart
 import com.example.bilidownloader.core.model.GeminiRequest
 import com.example.bilidownloader.core.model.GeminiConfig
-import com.example.bilidownloader.domain.model.AiModelConfig
-import com.example.bilidownloader.domain.model.AiProvider
+import com.example.bilidownloader.core.model.AiModelConfig
+import com.example.bilidownloader.core.model.AiProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException

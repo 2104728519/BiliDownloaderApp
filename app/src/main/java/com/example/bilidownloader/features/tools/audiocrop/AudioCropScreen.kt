@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.screen
+package com.example.bilidownloader.features.tools.audiocrop
 
 import android.widget.Toast
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -22,7 +22,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.bilidownloader.ui.viewmodel.AudioCropViewModel
 import java.util.Locale
 
 /**

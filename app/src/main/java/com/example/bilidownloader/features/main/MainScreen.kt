@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.screen
+package com.example.bilidownloader.features.main
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.padding
@@ -20,6 +20,10 @@ import com.example.bilidownloader.core.util.StorageHelper
 import com.example.bilidownloader.features.aicomment.AiCommentScreen
 import com.example.bilidownloader.features.home.HomeScreen
 import com.example.bilidownloader.features.login.LoginScreen
+import com.example.bilidownloader.features.tools.ToolsScreen
+import com.example.bilidownloader.features.tools.audiocrop.AudioCropScreen
+import com.example.bilidownloader.features.tools.audiocrop.AudioPickerScreen
+import com.example.bilidownloader.features.tools.transcription.TranscriptionScreen
 import java.net.URLEncoder
 
 /**

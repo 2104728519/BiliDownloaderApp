@@ -1,4 +1,4 @@
-package com.example.bilidownloader.domain.model
+package com.example.bilidownloader.core.model
 
 /**
  * AI 厂商类型枚举.

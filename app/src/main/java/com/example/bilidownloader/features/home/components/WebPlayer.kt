@@ -65,7 +65,6 @@ fun BiliWebPlayer(bvid: String) {
                     domStorageEnabled = true
                     useWideViewPort = true
                     loadWithOverviewMode = true
-                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     // 伪装 UA，确保加载移动端 H5 播放器
                     userAgentString = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
                 }
