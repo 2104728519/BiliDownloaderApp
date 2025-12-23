@@ -37,6 +37,14 @@ import com.example.bilidownloader.domain.model.CommentStyle
 import com.example.bilidownloader.ui.viewmodel.AiCommentLoadingState
 import com.example.bilidownloader.ui.viewmodel.AiCommentViewModel
 
+/**
+ * AI 评论助手主屏幕.
+ *
+ * 集成了三大核心功能块：
+ * 1. **自动化控制台**：配置模型、查看实时日志、启动/停止自动评论循环。
+ * 2. **推荐流过滤**：展示 B 站推荐视频，并支持点击解析。
+ * 3. **手动操作区**：支持手动输入 URL 解析、选择评论风格、生成并发送评论。
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AiCommentScreen(
@@ -48,12 +56,13 @@ fun AiCommentScreen(
     var urlInput by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
-    // [新增] 控制新建风格弹窗的状态
+    // 控制新建风格弹窗的显示状态
     var showAddStyleDialog by remember { mutableStateOf(false) }
 
-    // UI 锁定状态
+    // UI 锁定逻辑：当正在执行耗时任务或自动化运行时，禁用部分交互
     val isLocked = state.loadingState != AiCommentLoadingState.Idle || state.isAutoRunning
 
+    // 监听 ViewModel 发出的瞬态事件 (Toast)
     LaunchedEffect(state.error, state.successMessage) {
         state.error?.let {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
@@ -65,7 +74,6 @@ fun AiCommentScreen(
         }
     }
 
-    // [新增] 弹窗组件调用
     if (showAddStyleDialog) {
         AddStyleDialog(
             onDismiss = { showAddStyleDialog = false },
@@ -92,25 +100,26 @@ fun AiCommentScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 0. 模型选择器
+            // region 1. Model Selector (模型选择)
             ModelSelector(
                 currentModel = state.currentModel,
                 onModelSelected = { viewModel.updateModel(it) },
                 enabled = !state.isAutoRunning
             )
+            // endregion
 
-            // 1. 自动化控制台
+            // region 2. Automation Console (自动化控制台)
             AutomationControlCard(
                 isAutoRunning = state.isAutoRunning,
                 currentStyle = state.selectedStyle,
                 logs = state.autoLogs,
-                // 修改：使用 state.availableStyles 提供自动化可选风格
                 availableStyles = state.availableStyles,
                 onStart = { style -> viewModel.toggleAutomation(style) },
                 onStop = { viewModel.toggleAutomation(state.selectedStyle) }
             )
+            // endregion
 
-            // 2. 首页推荐卡片
+            // region 3. Recommendation Feed (推荐流)
             ElevatedCard(
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = if(isLocked && !state.isAutoRunning) 0.6f else 1f)
@@ -171,8 +180,9 @@ fun AiCommentScreen(
                     }
                 }
             }
+            // endregion
 
-            // 3. 手动操作区
+            // region 4. Manual Operation (手动操作区)
             OutlinedTextField(
                 value = urlInput,
                 onValueChange = { urlInput = it },
@@ -192,6 +202,7 @@ fun AiCommentScreen(
                 }
             )
 
+            // 视频信息展示卡片
             if (state.videoTitle.isNotEmpty()) {
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -213,12 +224,11 @@ fun AiCommentScreen(
                 }
             }
 
-            // 风格选择区 (关键修改)
+            // 风格选择 Chip Group
             if (state.isSubtitleReady || !state.isAutoRunning) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Text("选择评论风格", style = MaterialTheme.typography.labelLarge)
                     Spacer(modifier = Modifier.weight(1f))
-                    // [新增] 新建风格按钮
                     if (!state.isAutoRunning) {
                         TextButton(onClick = { showAddStyleDialog = true }) {
                             Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
@@ -229,7 +239,6 @@ fun AiCommentScreen(
                 }
 
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // [修改] 遍历动态风格列表
                     state.availableStyles.forEach { style ->
                         FilterChip(
                             selected = state.selectedStyle == style && state.loadingState != AiCommentLoadingState.GeneratingComment,
@@ -241,8 +250,8 @@ fun AiCommentScreen(
                                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                                 }
                             },
-                            // [新增] 为自定义风格显示删除按钮
                             trailingIcon = {
+                                // 仅允许删除非内置风格
                                 if (!style.isBuiltIn && !isLocked) {
                                     Icon(
                                         Icons.Default.Close,
@@ -256,6 +265,7 @@ fun AiCommentScreen(
                 }
             }
 
+            // 生成内容编辑与发送区
             if ((state.generatedContent.isNotEmpty() || state.selectedStyle != null) && !state.isAutoRunning) {
                 OutlinedTextField(
                     value = state.generatedContent,
@@ -280,12 +290,13 @@ fun AiCommentScreen(
                     }
                 }
             }
+            // endregion
         }
     }
 }
 
 /**
- * [新增] 新建风格弹窗组件
+ * 新建自定义风格弹窗.
  */
 @Composable
 fun AddStyleDialog(
@@ -333,7 +344,7 @@ fun AddStyleDialog(
 }
 
 /**
- * 模型选择器组件
+ * 模型下拉选择器.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -380,7 +391,8 @@ fun ModelSelector(
 }
 
 /**
- * 自动化控制卡片 (修改以接收动态风格列表)
+ * 自动化控制台卡片.
+ * 显示运行状态、实时日志流以及可选的启动风格。
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -388,7 +400,7 @@ fun AutomationControlCard(
     isAutoRunning: Boolean,
     currentStyle: CommentStyle?,
     logs: List<String>,
-    availableStyles: List<CommentStyle>, // 新增参数
+    availableStyles: List<CommentStyle>,
     onStart: (CommentStyle) -> Unit,
     onStop: () -> Unit
 ) {
@@ -430,10 +442,19 @@ fun AutomationControlCard(
     }
 }
 
+/**
+ * 日志输出控制台组件.
+ * 自动滚动到最新一条日志。
+ */
 @Composable
 fun LogConsole(logs: List<String>) {
     val listState = rememberLazyListState()
-    LaunchedEffect(logs.size) { if (logs.isNotEmpty()) listState.animateScrollToItem(logs.size - 1) }
+
+    // 监听日志数量变化，自动滚动到底部
+    LaunchedEffect(logs.size) {
+        if (logs.isNotEmpty()) listState.animateScrollToItem(logs.size - 1)
+    }
+
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().height(180.dp)) {
         LazyColumn(state = listState, contentPadding = PaddingValues(8.dp), modifier = Modifier.fillMaxSize()) {
             items(logs) { log ->

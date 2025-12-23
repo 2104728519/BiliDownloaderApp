@@ -19,14 +19,24 @@ import com.example.bilidownloader.ui.state.FormatOption
 import com.google.gson.Gson
 import kotlinx.coroutines.*
 
+/**
+ * 视频下载前台服务.
+ *
+ * 职责：
+ * 1. **进程保活**：通过 `startForeground` 将服务提升为前台服务，防止 App 切后台时被系统杀进程。
+ * 2. **唤醒锁 (WakeLock)**：申请 `PARTIAL_WAKE_LOCK`，确保屏幕关闭时 CPU 继续运行以下载文件。
+ * 3. **状态广播**：通过全局单例 [DownloadSession] 向 UI 层实时发送进度和状态。
+ * 4. **通知栏控制**：在通知栏显示实时进度，并提供简单的交互入口。
+ */
 class DownloadService : Service() {
 
+    // 独立的协程作用域，生命周期跟随 Service
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var notificationManager: NotificationManager
     private lateinit var wakeLock: PowerManager.WakeLock
 
     private var downloadJob: Job? = null
-    private var lastNotifyTime = 0L
+    private var lastNotifyTime = 0L // 用于限制通知刷新频率
 
     companion object {
         const val ACTION_START = "action_start"
@@ -49,9 +59,10 @@ class DownloadService : Service() {
         createNotificationChannel()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+        // 申请唤醒锁 (超时时间 10 分钟，防止意外耗电)
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BiliDownloader:DownloadService")
-        wakeLock.acquire(10 * 60 * 1000L) // 10分钟唤醒锁
+        wakeLock.acquire(10 * 60 * 1000L)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -77,10 +88,12 @@ class DownloadService : Service() {
             ACTION_PAUSE -> pauseDownload()
             ACTION_CANCEL -> cancelDownload()
         }
+        // 如果服务被系统杀掉，不自动重启 (START_NOT_STICKY)，因为下载参数会丢失
         return START_NOT_STICKY
     }
 
     private fun startDownload(params: DownloadVideoUseCase.Params) {
+        // 立即启动前台服务，避免 Android 12+ 的 ForegroundServiceStartNotAllowedException
         val notification = buildNotification("正在准备下载...", 0, true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
@@ -95,6 +108,7 @@ class DownloadService : Service() {
             try {
                 downloadUseCase(params).collect { resource ->
                     val currentTime = System.currentTimeMillis()
+                    // 限制通知刷新频率 (每秒最多一次)，防止系统丢弃更新或导致卡顿
                     var shouldUpdateNotif = true
                     if (resource is Resource.Loading && (currentTime - lastNotifyTime < 1000 && resource.progress > 0.01f)) {
                         shouldUpdateNotif = false
@@ -110,11 +124,13 @@ class DownloadService : Service() {
                         if (resource is Resource.Loading) lastNotifyTime = currentTime
                     }
 
+                    // 广播状态给 UI
                     DownloadSession.updateState(resource)
 
                     when (resource) {
                         is Resource.Success -> {
                             launch {
+                                // 下载成功：移除前台状态但保留通知，5秒后自动关闭服务
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                                     stopForeground(STOP_FOREGROUND_DETACH)
                                 } else {
@@ -127,13 +143,14 @@ class DownloadService : Service() {
                             }
                         }
                         is Resource.Error -> {
+                            // 下载失败：保持前台服务状态，让用户知道出错了
                             stopForeground(true)
                         }
                         else -> { /* Loading... */ }
                     }
                 }
             } catch (e: CancellationException) {
-                // Coroutine cancelled
+                // 协程被取消 (暂停或停止)
             } catch (e: Exception) {
                 val errorResource = Resource.Error<String>(e.message ?: "未知错误")
                 DownloadSession.updateState(errorResource)
@@ -179,7 +196,7 @@ class DownloadService : Service() {
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setProgress(100, progress, indeterminate)
             .setOngoing(progress < 100)
-            .setOnlyAlertOnce(true)
+            .setOnlyAlertOnce(true) // 避免每次更新进度都发出声音/震动
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
@@ -195,14 +212,10 @@ class DownloadService : Service() {
         }
     }
 
-    // =========================================================
-    // 修改后的 onDestroy
-    // =========================================================
     override fun onDestroy() {
-        // 如果服务销毁时下载还在运行（通常是系统清理或闪退）
-        // 强制发送一个结束信号，防止 UI 无限转圈
+        // 兜底逻辑：如果服务销毁时任务仍在运行（例如被系统强制回收）
+        // 发送 CANCELED 信号防止 UI 无限转圈
         if (downloadJob?.isActive == true) {
-            // 使用 GlobalScope 确保在服务销毁过程中能发出去
             @OptIn(DelicateCoroutinesApi::class)
             GlobalScope.launch {
                 DownloadSession.updateState(Resource.Error("CANCELED"))
@@ -211,6 +224,8 @@ class DownloadService : Service() {
 
         super.onDestroy()
         serviceScope.cancel()
+
+        // 释放唤醒锁
         if (::wakeLock.isInitialized && wakeLock.isHeld) {
             wakeLock.release()
         }

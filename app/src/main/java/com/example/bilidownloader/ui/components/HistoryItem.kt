@@ -17,29 +17,35 @@ import coil.compose.AsyncImage
 import com.example.bilidownloader.data.database.HistoryEntity
 import com.example.bilidownloader.core.util.DateUtils
 
-@OptIn(ExperimentalFoundationApi::class) // 使用长按功能需要这个注解
+/**
+ * 历史记录列表项组件.
+ *
+ * 支持多选模式：
+ * - **普通模式**：点击跳转详情。
+ * - **选择模式**：点击选中/取消选中，显示复选框。
+ * 使用 `combinedClickable` 同时处理点击和长按事件。
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HistoryItem(
     history: HistoryEntity,
-    isSelectionMode: Boolean, // 是否处于多选模式
-    isSelected: Boolean,      // 当前这一项是否被选中
-    onClick: () -> Unit,      // 点击事件
-    onLongClick: () -> Unit   // 长按事件
+    isSelectionMode: Boolean, // 当前是否处于多选状态
+    isSelected: Boolean,      // 当前条目是否被选中
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
-    // 外层卡片
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .height(90.dp) // 固定高度
+            .height(90.dp)
             .clip(RoundedCornerShape(8.dp))
-            // 【关键】组合点击事件：支持点击和长按
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),
         colors = CardDefaults.cardColors(
-            // 选中时变个颜色，提示用户
+            // 选中时高亮显示背景色
             containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
@@ -47,25 +53,25 @@ fun HistoryItem(
             modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. 左侧封面图
+            // 1. 封面图
             AsyncImage(
-                model = history.coverUrl.replace("http://", "https://"),
+                model = history.coverUrl.replace("http://", "https://"), // 强制 HTTPS
                 contentDescription = null,
                 modifier = Modifier
-                    .width(140.dp) // 16:9 比例大概的宽度
+                    .width(140.dp)
                     .fillMaxHeight(),
                 contentScale = ContentScale.Crop
             )
 
-            // 2. 中间文字信息
+            // 2. 信息区域
             Column(
                 modifier = Modifier
-                    .weight(1f) // 占满剩余空间
+                    .weight(1f)
                     .padding(8.dp)
                     .fillMaxHeight(),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // 标题 (最多显示2行)
+                // 标题 (限制 2 行，超长省略)
                 Text(
                     text = history.title,
                     style = MaterialTheme.typography.bodyMedium,
@@ -73,7 +79,7 @@ fun HistoryItem(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // 底部信息
+                // 底部元数据
                 Column {
                     Text(
                         text = "UP: ${history.uploader}",
@@ -88,11 +94,11 @@ fun HistoryItem(
                 }
             }
 
-            // 3. 右侧复选框 (只有在多选模式下才显示)
+            // 3. 多选复选框 (仅在多选模式下显示)
             if (isSelectionMode) {
                 Checkbox(
                     checked = isSelected,
-                    onCheckedChange = { onClick() }, // 点击复选框等同于点击条目
+                    onCheckedChange = { onClick() }, // 代理点击事件
                     modifier = Modifier.padding(end = 8.dp)
                 )
             }

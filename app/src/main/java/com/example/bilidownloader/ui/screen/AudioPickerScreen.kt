@@ -8,8 +8,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -21,7 +19,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,27 +39,35 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
 import kotlinx.coroutines.launch
 import kotlin.math.max
-import kotlin.math.min
 
+/**
+ * 音频文件选择与管理页面.
+ *
+ * 功能：
+ * 1. **本地扫描**：列出设备上的音频文件。
+ * 2. **管理操作**：长按进行删除、重命名（适配 Android 10+ Scoped Storage 权限请求）。
+ * 3. **排序筛选**：支持按时间、大小、时长排序，以及正序/倒序切换。
+ * 4. **快速滚动**：实现了自定义的 FastScrollbar 以应对大量文件列表。
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AudioPickerScreen(
     viewModel: AudioPickerViewModel = viewModel(),
-    onBack: () -> Unit, // 【新增】接收返回回调
+    onBack: () -> Unit,
     onAudioSelected: (Uri) -> Unit
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val audioList by viewModel.audioList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-
-    // 监听正序/倒序状态
     val isAscending by viewModel.isAscending.collectAsState()
 
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // --- 权限与 Launcher 代码保持不变 ---
+    // --- 权限与 IntentLauncher 配置 ---
+
+    // 1. 处理 Android 10+ 的删除/修改请求 (RecoverableSecurityException)
     val intentSenderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
@@ -74,6 +79,7 @@ fun AudioPickerScreen(
         }
     }
 
+    // 监听 ViewModel 中触发的权限请求意图
     LaunchedEffect(viewModel.pendingPermissionIntent) {
         viewModel.pendingPermissionIntent?.let { intentSender ->
             intentSenderLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
@@ -81,12 +87,14 @@ fun AudioPickerScreen(
         }
     }
 
+    // 2. 调用系统文件选择器 (SAF)
     val systemPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) onAudioSelected(uri)
     }
 
+    // 3. 运行时读取权限申请
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -106,7 +114,7 @@ fun AudioPickerScreen(
         permissionLauncher.launch(permission)
     }
 
-    // --- 列表状态 ---
+    // 列表状态保持 (旋转屏幕不丢失位置)
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = viewModel.scrollIndex,
         initialFirstVisibleItemScrollOffset = viewModel.scrollOffset
@@ -123,6 +131,7 @@ fun AudioPickerScreen(
     Scaffold(
         topBar = {
             if (isSearchActive) {
+                // 搜索模式 TopBar
                 TopAppBar(
                     title = {
                         TextField(
@@ -170,9 +179,9 @@ fun AudioPickerScreen(
                     )
                 )
             } else {
+                // 常规模式 TopBar
                 CenterAlignedTopAppBar(
                     title = { Text("选择音频") },
-                    // 【新增】返回按钮
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
@@ -195,26 +204,16 @@ fun AudioPickerScreen(
                             DropdownMenuItem(text = { Text("按时间") }, onClick = { viewModel.changeSortType(AudioPickerViewModel.SortType.DATE); showSortMenu = false })
                             DropdownMenuItem(text = { Text("按大小") }, onClick = { viewModel.changeSortType(AudioPickerViewModel.SortType.SIZE); showSortMenu = false })
                             DropdownMenuItem(text = { Text("按时长") }, onClick = { viewModel.changeSortType(AudioPickerViewModel.SortType.DURATION); showSortMenu = false })
-
                             Divider()
-
-                            // 正序/倒序切换选项
                             DropdownMenuItem(
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(if (isAscending) "当前：正序 (A→Z)" else "当前：倒序 (Z→A)")
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Icon(
-                                            if (isAscending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                        Icon(if (isAscending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward, null, Modifier.size(16.dp))
                                     }
                                 },
-                                onClick = {
-                                    viewModel.toggleSortOrder()
-                                    showSortMenu = false
-                                }
+                                onClick = { viewModel.toggleSortOrder(); showSortMenu = false }
                             )
                         }
                     }
@@ -232,15 +231,11 @@ fun AudioPickerScreen(
         }
     ) { paddingValues ->
 
-        // 使用 Box 包裹 LazyColumn 以便叠加滚动条
-        Box(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
-        ) {
+        Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else if (audioList.isEmpty()) {
+                // 空状态占位图
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -259,7 +254,7 @@ fun AudioPickerScreen(
                     )
                 }
             } else {
-                // 原有的 List
+                // 音频列表
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     items(audioList, key = { it.id }) { audio ->
                         var isMenuExpanded by remember { mutableStateOf(false) }
@@ -282,25 +277,25 @@ fun AudioPickerScreen(
                                 )
                             )
 
-                            // 菜单保持不变...
+                            // 长按菜单
                             DropdownMenu(
                                 expanded = isMenuExpanded,
                                 onDismissRequest = { isMenuExpanded = false }
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("分享") },
-                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                                    leadingIcon = { Icon(Icons.Default.Share, null, Modifier.size(20.dp)) },
                                     onClick = { isMenuExpanded = false; viewModel.shareAudio(context, audio) }
                                 )
                                 Divider()
                                 DropdownMenuItem(
                                     text = { Text("重命名") },
-                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                                    leadingIcon = { Icon(Icons.Default.Edit, null, Modifier.size(20.dp)) },
                                     onClick = { isMenuExpanded = false; viewModel.selectedAudioForAction = audio; viewModel.showRenameDialog = true }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("删除", color = MaterialTheme.colorScheme.error) },
-                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp)) },
+                                    leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp)) },
                                     onClick = { isMenuExpanded = false; viewModel.selectedAudioForAction = audio; viewModel.showDeleteDialog = true }
                                 )
                             }
@@ -309,7 +304,7 @@ fun AudioPickerScreen(
                     }
                 }
 
-                // 快速滚动条
+                // 自定义快速滚动条 (Fast Scroller)
                 if (audioList.size > 10) {
                     FastScrollbar(
                         listState = listState,
@@ -323,7 +318,7 @@ fun AudioPickerScreen(
             }
         }
 
-        // --- 弹窗组件代码保持不变 ---
+        // 删除确认弹窗
         if (viewModel.showDeleteDialog) {
             AlertDialog(
                 onDismissRequest = { viewModel.showDeleteDialog = false },
@@ -339,6 +334,7 @@ fun AudioPickerScreen(
             )
         }
 
+        // 重命名弹窗
         if (viewModel.showRenameDialog) {
             val initialName = viewModel.selectedAudioForAction?.title?.substringBeforeLast(".") ?: ""
             var newNameInput by remember { mutableStateOf(initialName) }
@@ -366,7 +362,10 @@ fun AudioPickerScreen(
     }
 }
 
-// 快速滚动条组件 (保持不变，但需包含在文件内)
+/**
+ * 快速滚动条组件.
+ * 根据列表长度动态计算滑块高度，支持拖拽快速定位.
+ */
 @Composable
 fun FastScrollbar(
     listState: LazyListState,
@@ -380,10 +379,10 @@ fun FastScrollbar(
 
     BoxWithConstraints(modifier = modifier) {
         val maxHeight = constraints.maxHeight.toFloat()
-        // 滚动条滑块的高度，根据列表长度动态调整，但不小于 40f
+        // 动态滑块高度，最小 40dp
         val thumbHeight = max(40f, maxHeight / max(1, itemCount) * 2)
 
-        // 计算当前滑块位置
+        // 计算滑块当前位置 (拖拽中跟随手指，否则跟随列表)
         val thumbOffset = if (isDragging) {
             dragOffset
         } else {
@@ -401,7 +400,7 @@ fun FastScrollbar(
                 .background(if (isDragging) thumbColor else thumbColor.copy(alpha = 0.5f))
         )
 
-        // 透明的触摸响应区域
+        // 透明触摸响应区 (全高)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -419,6 +418,7 @@ fun FastScrollbar(
                     onDragStopped = { isDragging = false },
                     onDragStarted = { offset ->
                         isDragging = true
+                        // 点击跳跃逻辑
                         val newOffset = (offset.y - thumbHeight / 2).coerceIn(0f, maxHeight - thumbHeight)
                         dragOffset = newOffset
                         val progress = dragOffset / (maxHeight - thumbHeight)

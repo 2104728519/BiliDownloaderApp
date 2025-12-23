@@ -25,6 +25,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.bilidownloader.ui.viewmodel.AudioCropViewModel
 import java.util.Locale
 
+/**
+ * 音频裁剪页面.
+ *
+ * 提供可视化的时间轴滑块 (`RangeSlider`)，允许用户指定音频的起止时间。
+ * 支持即时试听选定片段，并将结果导出为 MP3.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AudioCropScreen(
@@ -35,24 +41,23 @@ fun AudioCropScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
 
-    // 1. 状态收集
+    // 状态收集
     val totalDurationMs by viewModel.totalDuration.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val saveState by viewModel.saveState.collectAsState()
-    // 【新增】获取当前播放进度
     val currentPlayPosition by viewModel.currentPosition.collectAsState()
 
-
-    // 2. 初始化
+    // 初始化加载音频数据
     LaunchedEffect(Unit) {
         viewModel.loadAudioInfo(audioUri)
     }
 
+    // 页面销毁时停止播放
     DisposableEffect(Unit) {
         onDispose { viewModel.stopAudio() }
     }
 
-    // 3. UI 状态
+    // UI 内部状态
     var sliderPosition by remember { mutableStateOf(0.0f..1.0f) }
     var startTimeText by remember { mutableStateOf("00:00.000") }
     var endTimeText by remember { mutableStateOf("00:00.000") }
@@ -61,7 +66,7 @@ fun AudioCropScreen(
     var showDialog by remember { mutableStateOf(false) }
     var saveFileName by remember { mutableStateOf("") }
 
-    // --- 核心工具函数 ---
+    // 格式化毫秒为 "MM:ss.SSS"
     fun formatMillis(ms: Long): String {
         val positiveMs = ms.coerceAtLeast(0)
         val totalSeconds = positiveMs / 1000
@@ -71,6 +76,7 @@ fun AudioCropScreen(
         return String.format(Locale.US, "%02d:%02d.%03d", minutes, seconds, millis)
     }
 
+    // 解析 "MM:ss.SSS" 为毫秒
     fun parseTimeToMs(text: String): Long? {
         try {
             if (text.isBlank()) return null
@@ -94,7 +100,7 @@ fun AudioCropScreen(
         }
     }
 
-    // --- 同步逻辑 ---
+    // 状态同步：当音频总时长或滑块变动时，更新文本框 (如果未获得焦点)
     LaunchedEffect(totalDurationMs, sliderPosition) {
         if (totalDurationMs > 0) {
             val startMs = (totalDurationMs * sliderPosition.start).toLong()
@@ -108,6 +114,7 @@ fun AudioCropScreen(
         }
     }
 
+    // 处理保存结果的回调
     LaunchedEffect(saveState) {
         if (saveState == 2) {
             Toast.makeText(context, "保存成功！", Toast.LENGTH_SHORT).show()
@@ -120,7 +127,7 @@ fun AudioCropScreen(
         }
     }
 
-    // --- 弹窗逻辑 ---
+    // 保存文件弹窗
     if (showDialog) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
@@ -164,7 +171,6 @@ fun AudioCropScreen(
         )
     }
 
-    // === 主界面 ===
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -196,14 +202,14 @@ fun AudioCropScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .pointerInput(Unit) {
+                    // 点击空白处收起键盘
                     detectTapGestures(onTap = { focusManager.clearFocus() })
                 }
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
-            // 移除 SpaceBetween，使用 Spacer.weight 控制布局
         ) {
 
-            // 1. 顶部状态
+            // 1. 状态指示图标
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     imageVector = Icons.Default.Check,
@@ -219,7 +225,7 @@ fun AudioCropScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 2. 核心控制区 (输入框 + 滑块)
+            // 2. 时间输入框 (支持手动修改)
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -267,10 +273,12 @@ fun AudioCropScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
+                // 3. 滑块与播放进度条
                 if (totalDurationMs > 0) {
                     RangeSlider(
                         value = sliderPosition,
                         onValueChange = { range ->
+                            // 限制最小间隔，防止重叠
                             if (range.endInclusive - range.start > 0.001f) {
                                 sliderPosition = range
                             }
@@ -278,11 +286,11 @@ fun AudioCropScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    // ★★★【修改】播放进度显示区域 ★★★
                     val startMs = (totalDurationMs * sliderPosition.start).toLong()
                     val endMs = (totalDurationMs * sliderPosition.endInclusive).toLong()
                     val clipDuration = endMs - startMs
 
+                    // 计算相对播放进度
                     val currentRelativeMs = if (isPlaying && currentPlayPosition >= startMs) {
                         currentPlayPosition - startMs
                     } else {
@@ -291,6 +299,7 @@ fun AudioCropScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // 进度条显示
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -319,9 +328,9 @@ fun AudioCropScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f)) // 弹簧占位，把播放按钮顶到底部
+            Spacer(modifier = Modifier.weight(1f))
 
-            // 3. 播放按钮
+            // 4. 试听按钮
             FilledTonalIconButton(
                 onClick = {
                     focusManager.clearFocus()

@@ -23,19 +23,27 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.example.bilidownloader.core.common.Constants
 import com.example.bilidownloader.data.model.GeetestInfo
 
-// 1. 修改 GeetestWebView 函数签名，增加一个 cookie 参数
+/**
+ * 极验验证码 WebView 组件.
+ *
+ * 核心功能：
+ * 1. **加载本地 HTML**：注入极验 JS SDK (`gt.js`) 并初始化验证码。
+ * 2. **User-Agent 伪装**：强制使用与 Retrofit 请求头一致的 UA，确保风控环境一致。
+ * 3. **JSBridge 通信**：通过拦截 `jsbridge://` 协议的 URL 跳转，实现 JS 向 Kotlin 传递验证结果 (validate, seccode)。
+ * 4. **Cookie 窃取/同步**：关键步骤 —— 从 WebView 的 CookieManager 中提取 B 站下发的设备指纹 (buvid) 和会话 Cookie，同步到 App 的网络层。
+ */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun GeetestWebView(
     geetestInfo: GeetestInfo,
-    onSuccess: (String, String, String) -> Unit, // <--- 传出 validate, seccode, cookie
+    onSuccess: (String, String, String) -> Unit, // Callback: validate, seccode, cookie
     onError: (String) -> Unit,
     onClose: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
+            .background(Color.Black.copy(alpha = 0.5f)) // 半透明背景遮罩
             .padding(24.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Color.White)
@@ -52,14 +60,14 @@ fun GeetestWebView(
                         setSupportZoom(false)
                         mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
-                        // 【核心修改】第二步：强制 WebView 使用和 Retrofit 一模一样的 User-Agent
+                        // 【关键】必须与 BiliHeaderInterceptor 保持一致，否则验证通过但登录接口会报 -400
                         userAgentString = Constants.COMMON_USER_AGENT
-                        Log.d("GeetestWebView", "设置 UA: $userAgentString") // 打印日志确认
+                        Log.d("GeetestWebView", "设置 UA: $userAgentString")
                     }
 
                     setBackgroundColor(0)
 
-                    // 1. 日志捕获 (依然保留，方便调试)
+                    // WebChromeClient: 捕获 JS console.log 用于调试
                     webChromeClient = object : WebChromeClient() {
                         override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                             if (consoleMessage != null) {
@@ -69,48 +77,44 @@ fun GeetestWebView(
                         }
                     }
 
-                    // 2. URL 拦截逻辑
+                    // WebViewClient: 拦截自定义协议跳转
                     webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val url = request?.url?.toString() ?: return false
                             Log.d("GeetestWebView", "WebView 尝试跳转: $url")
 
-                            // 拦截成功信号
+                            // 拦截 JS 发出的成功信号
                             if (url.startsWith("jsbridge://success")) {
                                 try {
                                     val uri = Uri.parse(url)
                                     val validate = uri.getQueryParameter("validate")
                                     val seccode = uri.getQueryParameter("seccode")
 
-                                    // 【核心新增】从 WebView 获取真实的 Cookie
+                                    // 【核心逻辑】提取 WebView 内部生成的 Cookie (包含关键的 buvid3)
                                     val cookieManager = android.webkit.CookieManager.getInstance()
-                                    // 注意：这里使用 B 站 passport 域名提取 Cookie
                                     val webViewCookie = cookieManager.getCookie("https://passport.bilibili.com") ?: ""
 
                                     Log.d("GeetestWebView", "成功窃取 WebView Cookie: $webViewCookie")
 
                                     if (!validate.isNullOrEmpty() && !seccode.isNullOrEmpty()) {
-                                        // 切换到主线程调用回调 (保险起见)
-                                        post { onSuccess(validate, seccode, webViewCookie) } // <--- 传出 Cookie
+                                        post { onSuccess(validate, seccode, webViewCookie) }
                                     }
                                 } catch (e: Exception) {
                                     Log.e("GeetestWebView", "解析参数异常", e)
                                 }
-                                return true // 阻止网页真正跳转
+                                return true // 阻止跳转，由 Native 处理
                             }
 
                             // 拦截错误信号
                             if (url.startsWith("jsbridge://error")) {
                                 val uri = Uri.parse(url)
                                 val msg = uri.getQueryParameter("msg") ?: "未知错误"
-                                Log.e("GeetestWebView", "拦截到错误信号: $msg")
                                 post { onError(msg) }
                                 return true
                             }
 
                             // 拦截关闭信号
                             if (url.startsWith("jsbridge://close")) {
-                                Log.d("GeetestWebView", "拦截到关闭信号")
                                 post { onClose() }
                                 return true
                             }
@@ -119,7 +123,7 @@ fun GeetestWebView(
                         }
                     }
 
-                    // 3. 加载 HTML (JS 改为跳转 URL)
+                    // 加载构造好的 HTML，BaseURL 指向 B 站 Passport 域以解决跨域问题
                     loadDataWithBaseURL(
                         "https://passport.bilibili.com/",
                         getFullHtml(geetestInfo),
@@ -133,7 +137,10 @@ fun GeetestWebView(
     }
 }
 
-// 保持 getFullHtml 方法不变
+/**
+ * 构造包含极验 SDK 的 HTML 页面.
+ * 使用 JS 代码初始化极验，并定义回调函数将结果通过 window.location.href 传出。
+ */
 private fun getFullHtml(info: GeetestInfo): String {
     return """
         <!DOCTYPE html>
@@ -146,6 +153,7 @@ private fun getFullHtml(info: GeetestInfo): String {
         <body>
             <div id="captcha-box"></div>
             <script>
+                // 轮询等待 initGeetest 函数加载完成
                 var checkTimer = setInterval(function() {
                     if (window.initGeetest) {
                         clearInterval(checkTimer);
@@ -173,10 +181,11 @@ private fun getFullHtml(info: GeetestInfo): String {
                             var result = captchaObj.getValidate();
                             console.log("JS: 验证成功, 准备跳转协议...");
                             
-                            // 【核心】不调对象，直接跳链接，参数用 encodeURIComponent 编码
+                            // 对参数进行 URL 编码防止特殊字符截断
                             var validate = encodeURIComponent(result.geetest_validate);
                             var seccode = encodeURIComponent(result.geetest_seccode);
                             
+                            // 触发 Native 拦截
                             window.location.href = "jsbridge://success?validate=" + validate + "&seccode=" + seccode;
                         });
 

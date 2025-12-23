@@ -17,38 +17,42 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
+/**
+ * B 站嵌入式 Web 播放器组件.
+ *
+ * 通过 WebView 加载 B 站官方播放器 H5 页面 (`player.bilibili.com`)。
+ * 核心功能：
+ * 1. **生命周期绑定**：监听 Compose/Activity 生命周期，实现前后台切换时的自动暂停/恢复播放。
+ * 2. **UA 伪装**：模拟 Android 手机浏览器，强制加载 H5 播放器而非 Flash 或 PC 版。
+ * 3. **资源释放**：组件销毁时彻底销毁 WebView，防止内存泄漏和后台音频残留。
+ */
 @Composable
 fun BiliWebPlayer(bvid: String) {
-    // 1. 获取生命周期管理者 (它知道 APP 是在前台还是后台)
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // 2. 记住 WebView 的引用，方便我们在外面控制它
-    // mutableStateOf 也可以，这里直接用 remember 一个可变变量简单点
+    // 使用 remember 持有 WebView 引用，以便在 DisposableEffect 中访问
     var webView: WebView? = remember { null }
 
-    // 3. 监听生命周期变化 (解决后台播放问题)
+    // 监听生命周期事件 (Resume/Pause)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> webView?.onResume() // 回到前台：恢复
-                Lifecycle.Event.ON_PAUSE -> webView?.onPause()   // 去了后台：暂停
+                Lifecycle.Event.ON_RESUME -> webView?.onResume() // 恢复视频和音频
+                Lifecycle.Event.ON_PAUSE -> webView?.onPause()   // 暂停视频和音频
                 else -> {}
             }
         }
-        // 注册监听
         lifecycleOwner.lifecycle.addObserver(observer)
 
-        // 当这个组件被销毁时 (比如用户退出了页面)，取消监听并销毁 WebView
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            webView?.destroy()
+            webView?.destroy() // 彻底销毁，防止后台播放
         }
     }
 
     AndroidView(
         factory = { context ->
             WebView(context).apply {
-                // 赋值给外面的变量，这样上面的监听器就能控制它了
                 webView = this
 
                 layoutParams = ViewGroup.LayoutParams(
@@ -62,17 +66,18 @@ fun BiliWebPlayer(bvid: String) {
                     useWideViewPort = true
                     loadWithOverviewMode = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                    // 伪装成 Android 手机浏览器
+                    // 伪装 UA，确保加载移动端 H5 播放器
                     userAgentString = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
                 }
 
                 webChromeClient = WebChromeClient()
                 webViewClient = WebViewClient()
 
+                // 加载 B 站通用播放器页面
                 loadUrl("https://player.bilibili.com/player.html?bvid=$bvid&high_quality=1&danmaku=0")
             }
         },
-        // 加上 onRelease 在 Compose 销毁视图时做双重保险
+        // 双重保险：Compose 视图节点移除时也执行销毁
         onRelease = {
             it.stopLoading()
             it.onPause()
@@ -80,6 +85,6 @@ fun BiliWebPlayer(bvid: String) {
         },
         modifier = Modifier
             .fillMaxWidth()
-            .height(220.dp)
+            .height(220.dp) // 固定高度，模拟 16:9
     )
 }
