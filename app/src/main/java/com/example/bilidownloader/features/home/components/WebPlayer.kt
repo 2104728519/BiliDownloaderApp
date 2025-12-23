@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.components
+package com.example.bilidownloader.features.home.components
 
 import android.view.ViewGroup
 import android.webkit.WebChromeClient

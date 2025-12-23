@@ -1,4 +1,4 @@
-package com.example.bilidownloader.data.repository
+package com.example.bilidownloader.features.home
 
 import com.example.bilidownloader.core.common.Resource
 import kotlinx.coroutines.channels.BufferOverflow

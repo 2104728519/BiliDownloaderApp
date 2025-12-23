@@ -3,34 +3,43 @@ package com.example.bilidownloader.di
 import android.content.Context
 import com.example.bilidownloader.core.database.AppDatabase
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.data.repository.*
-import com.example.bilidownloader.domain.usecase.*
+import com.example.bilidownloader.data.repository.MediaRepository
+import com.example.bilidownloader.features.aicomment.CommentRepository
+import com.example.bilidownloader.features.aicomment.LlmRepository
+import com.example.bilidownloader.features.aicomment.StyleRepository
+import com.example.bilidownloader.features.home.DownloadRepository
+import com.example.bilidownloader.features.home.HistoryRepository
+import com.example.bilidownloader.features.home.HomeRepository
+import com.example.bilidownloader.features.home.SubtitleRepository
 import com.example.bilidownloader.features.login.AuthRepository
-import com.example.bilidownloader.features.aicomment.CommentRepository // 新引用
-import com.example.bilidownloader.features.aicomment.LlmRepository // 新引用
-import com.example.bilidownloader.features.aicomment.StyleRepository // 新引用
 
+/**
+ * 依赖注入容器接口.
+ * 定义应用中所有 Repository 的单例获取方式.
+ * (UseCase 已被移除，逻辑下沉至 Repository)
+ */
 interface AppContainer {
-    // Repositories
+    // --- Features Repositories ---
     val historyRepository: HistoryRepository
     val authRepository: AuthRepository
     val downloadRepository: DownloadRepository
     val subtitleRepository: SubtitleRepository
-    val mediaRepository: MediaRepository
+    val homeRepository: HomeRepository // 原 RecommendRepository，现兼顾解析与推荐
     val commentRepository: CommentRepository
     val llmRepository: LlmRepository
-    val recommendRepository: RecommendRepository
     val styleRepository: StyleRepository
 
-    // UseCases (仅保留尚未重构的)
-    val analyzeVideoUseCase: AnalyzeVideoUseCase
-    val downloadVideoUseCase: DownloadVideoUseCase
-    val prepareTranscribeUseCase: PrepareTranscribeUseCase
-    // 已删除: getSubtitleUseCase, generateCommentUseCase, postCommentUseCase, getRecommendedVideosUseCase
+    // --- Data Repositories (待移动) ---
+    val mediaRepository: MediaRepository
 }
 
+/**
+ * 手动依赖注入容器的具体实现.
+ * 使用 `lazy` 委托实现懒加载单例模式.
+ */
 class DefaultAppContainer(private val context: Context) : AppContainer {
 
+    // Database & Network (Infrastructure)
     private val database by lazy {
         AppDatabase.getDatabase(context)
     }
@@ -41,7 +50,7 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         database.commentedVideoDao()
     }
 
-    // region Repositories
+    // region Repository Implementations
 
     override val historyRepository by lazy {
         HistoryRepository(database.historyDao())
@@ -52,15 +61,16 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     }
 
     override val downloadRepository by lazy {
-        DownloadRepository()
+        DownloadRepository(context)
     }
 
     override val subtitleRepository by lazy {
         SubtitleRepository(biliApiService)
     }
 
-    override val mediaRepository by lazy {
-        MediaRepository(context)
+    override val homeRepository by lazy {
+        // HomeRepository 聚合了推荐流获取和视频解析功能，因此需要访问历史记录 DAO
+        HomeRepository(context, commentedVideoDao, database.historyDao())
     }
 
     override val commentRepository by lazy {
@@ -71,30 +81,13 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         LlmRepository()
     }
 
-    override val recommendRepository by lazy {
-        RecommendRepository(context, commentedVideoDao)
-    }
-
     override val styleRepository by lazy {
         StyleRepository(database.customStyleDao())
     }
 
-    // endregion
-
-    // region UseCases
-
-    override val analyzeVideoUseCase by lazy {
-        AnalyzeVideoUseCase(historyRepository)
+    override val mediaRepository by lazy {
+        MediaRepository(context)
     }
-
-    override val downloadVideoUseCase by lazy {
-        DownloadVideoUseCase(context, downloadRepository)
-    }
-
-    override val prepareTranscribeUseCase by lazy {
-        PrepareTranscribeUseCase(context, downloadRepository)
-    }
-
 
     // endregion
 }

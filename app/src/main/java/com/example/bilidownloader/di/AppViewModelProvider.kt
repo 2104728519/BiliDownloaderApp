@@ -5,29 +5,29 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.bilidownloader.MyApplication
-import com.example.bilidownloader.features.aicomment.AiCommentViewModel // 新引用
+import com.example.bilidownloader.features.aicomment.AiCommentViewModel
+import com.example.bilidownloader.features.home.HomeViewModel
 import com.example.bilidownloader.features.login.LoginViewModel
 import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
-import com.example.bilidownloader.ui.viewmodel.MainViewModel
+import com.example.bilidownloader.ui.viewmodel.TranscriptionViewModel
 
 object AppViewModelProvider {
     val Factory = viewModelFactory {
 
-        // MainViewModel 注入配置
+        // HomeViewModel (原 MainViewModel)
         initializer {
             val container = bilidownloaderApplication().container
-            MainViewModel(
+            HomeViewModel(
                 application = bilidownloaderApplication(),
                 historyRepository = container.historyRepository,
                 authRepository = container.authRepository,
-                analyzeVideoUseCase = container.analyzeVideoUseCase,
-                downloadVideoUseCase = container.downloadVideoUseCase,
-                prepareTranscribeUseCase = container.prepareTranscribeUseCase,
-                subtitleRepository = container.subtitleRepository // 替换 UseCase
+                homeRepository = container.homeRepository,         // 核心数据源 (解析+推荐)
+                downloadRepository = container.downloadRepository, // 下载核心
+                subtitleRepository = container.subtitleRepository
             )
         }
 
-        // LoginViewModel 注入配置
+        // LoginViewModel
         initializer {
             val container = bilidownloaderApplication().container
             LoginViewModel(
@@ -36,27 +36,36 @@ object AppViewModelProvider {
             )
         }
 
-        // AudioPickerViewModel 注入配置
+        // AiCommentViewModel
+        initializer {
+            val container = bilidownloaderApplication().container
+            AiCommentViewModel(
+                homeRepository = container.homeRepository,         // 替代了 AnalyzeVideoUseCase 和 RecommendRepository
+                subtitleRepository = container.subtitleRepository,
+                llmRepository = container.llmRepository,
+                commentRepository = container.commentRepository,
+                styleRepository = container.styleRepository
+            )
+        }
+
+        // AudioPickerViewModel (工具箱-音频选择)
         initializer {
             AudioPickerViewModel(
                 application = bilidownloaderApplication(),
             )
         }
 
-        // AiCommentViewModel 注入配置
+        // TranscriptionViewModel (工具箱-转写)
         initializer {
-            val container = bilidownloaderApplication().container
-            AiCommentViewModel(
-                analyzeVideoUseCase = container.analyzeVideoUseCase,
-                subtitleRepository = container.subtitleRepository, // 注入 Repo
-                llmRepository = container.llmRepository,           // 注入 Repo
-                commentRepository = container.commentRepository,   // 注入 Repo
-                recommendRepository = container.recommendRepository, // 注入 Repo
-                styleRepository = container.styleRepository        // 注入 Repo
+            TranscriptionViewModel(
+                application = bilidownloaderApplication()
             )
         }
     }
 }
 
+/**
+ * 扩展函数：便捷获取 Application 实例
+ */
 fun CreationExtras.bilidownloaderApplication(): MyApplication =
     (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MyApplication)

@@ -40,7 +40,7 @@
 
         <!-- 【新增】注册 Service -->
         <service
-            android:name=".service.DownloadService"
+            android:name=".features.home.DownloadService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

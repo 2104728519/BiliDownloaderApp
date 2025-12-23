@@ -6,11 +6,10 @@ import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.model.CandidateVideo
 import com.example.bilidownloader.core.model.ConclusionData
 import com.example.bilidownloader.core.util.RateLimitHelper
-import com.example.bilidownloader.data.repository.RecommendRepository
-import com.example.bilidownloader.data.repository.SubtitleRepository
 import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.CommentStyle
-import com.example.bilidownloader.domain.usecase.AnalyzeVideoUseCase // 这个暂时保留，因为还没重构 Home
+import com.example.bilidownloader.features.home.HomeRepository // 【关键】引入 HomeRepository
+import com.example.bilidownloader.features.home.SubtitleRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -21,34 +20,44 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-// AiCommentUiState 定义保持不变...
 data class AiCommentUiState(
     val loadingState: AiCommentLoadingState = AiCommentLoadingState.Idle,
     val error: String? = null,
     val successMessage: String? = null,
+
+    // 视频信息
     val videoTitle: String = "",
     val videoCover: String = "",
     val oid: Long = 0L,
     val bvid: String = "",
     val cid: Long = 0L,
     val upMid: Long = 0L,
+
+    // 字幕数据
     val subtitleData: ConclusionData? = null,
     val isSubtitleReady: Boolean = false,
+
+    // 评论生成
     val generatedContent: String = "",
     val selectedStyle: CommentStyle? = null,
+
+    // 可用风格列表
     val availableStyles: List<CommentStyle> = emptyList(),
+
+    // 当前选择的模型
     val currentModel: AiModelConfig = AiModelConfig.SMART_AUTO,
+
+    // 自动化相关
     val recommendationList: List<CandidateVideo> = emptyList(),
     val isAutoRunning: Boolean = false,
     val autoLogs: List<String> = emptyList()
 )
 
 class AiCommentViewModel(
-    private val analyzeVideoUseCase: AnalyzeVideoUseCase, // 暂时保留
-    private val subtitleRepository: SubtitleRepository, // 替换 UseCase
-    private val llmRepository: LlmRepository,           // 替换 UseCase
-    private val commentRepository: CommentRepository,   // 替换 UseCase
-    private val recommendRepository: RecommendRepository, // 替换 UseCase
+    private val homeRepository: HomeRepository,       // 【关键】统一替代 AnalyzeVideoUseCase 和 RecommendRepository
+    private val subtitleRepository: SubtitleRepository,
+    private val llmRepository: LlmRepository,
+    private val commentRepository: CommentRepository,
     private val styleRepository: StyleRepository
 ) : ViewModel() {
 
@@ -57,6 +66,7 @@ class AiCommentViewModel(
     private var automationJob: Job? = null
 
     init {
+        // 监听风格列表变化
         viewModelScope.launch {
             styleRepository.allStyles.collect { styles ->
                 _uiState.update { it.copy(availableStyles = styles) }
@@ -64,7 +74,8 @@ class AiCommentViewModel(
         }
     }
 
-    // ... (addCustomStyle, deleteCustomStyle, updateModel, toggleAutomation, stopAutomation, appendLog 保持不变) ...
+    // region Style Management
+
     fun addCustomStyle(label: String, prompt: String) {
         viewModelScope.launch {
             styleRepository.addStyle(label, prompt)
@@ -82,6 +93,10 @@ class AiCommentViewModel(
         }
     }
 
+    // endregion
+
+    // region Model & Automation
+
     fun updateModel(model: AiModelConfig) {
         if (!_uiState.value.isAutoRunning) {
             _uiState.update { it.copy(currentModel = model) }
@@ -89,11 +104,18 @@ class AiCommentViewModel(
     }
 
     fun toggleAutomation(style: CommentStyle?) {
-        if (_uiState.value.isAutoRunning) stopAutomation() else if (style != null) startAutomation(style)
+        if (_uiState.value.isAutoRunning) stopAutomation()
+        else if (style != null) startAutomation(style)
     }
 
     private fun startAutomation(style: CommentStyle) {
-        _uiState.update { it.copy(isAutoRunning = true, selectedStyle = style, autoLogs = listOf(">>> 启动自动化 | 风格: ${style.label} | 模型: ${_uiState.value.currentModel.name}")) }
+        _uiState.update {
+            it.copy(
+                isAutoRunning = true,
+                selectedStyle = style,
+                autoLogs = listOf(">>> 启动自动化 | 风格: ${style.label} | 模型: ${_uiState.value.currentModel.name}")
+            )
+        }
         automationJob = viewModelScope.launch { startAutomationLoop(style) }
     }
 
@@ -114,12 +136,13 @@ class AiCommentViewModel(
 
         while (currentCoroutineContext().isActive) {
             try {
+                // 1. 补充弹药：获取推荐视频
                 if (localQueue.isEmpty()) {
                     appendLog("获取推荐列表...")
                     _uiState.update { it.copy(loadingState = AiCommentLoadingState.FetchingRecommendations) }
 
-                    // 【修改】直接调用 Repository
-                    val result = recommendRepository.fetchCandidateVideos()
+                    // 【修改】调用 HomeRepository
+                    val result = homeRepository.fetchCandidateVideos()
 
                     if (result is Resource.Success && !result.data.isNullOrEmpty()) {
                         localQueue.addAll(result.data!!)
@@ -131,15 +154,20 @@ class AiCommentViewModel(
                     }
                 }
 
+                // 2. 取出一个视频
                 val currentVideo = localQueue.removeFirst()
                 applyCandidate(currentVideo)
                 appendLog("处理: ${currentVideo.info.title}")
 
                 _uiState.update { it.copy(loadingState = AiCommentLoadingState.FetchingSubtitle) }
-                delay(Random.nextLong(1000, 3000))
+                delay(Random.nextLong(1000, 3000)) // 拟人化等待
 
-                // 【修改】直接调用 Repository
-                val subResult = subtitleRepository.getSubtitleWithSign(currentVideo.info.bvid, currentVideo.cid, currentVideo.info.owner?.mid)
+                // 3. 获取字幕
+                val subResult = subtitleRepository.getSubtitleWithSign(
+                    currentVideo.info.bvid,
+                    currentVideo.cid,
+                    currentVideo.info.owner?.mid
+                )
 
                 if (subResult is Resource.Error || subResult.data?.modelResult == null) {
                     appendLog("❌ 无字幕，跳过")
@@ -148,8 +176,15 @@ class AiCommentViewModel(
                 }
 
                 val validSubtitleData = subResult.data!!
-                _uiState.update { it.copy(subtitleData = validSubtitleData, isSubtitleReady = true, loadingState = AiCommentLoadingState.Idle) }
+                _uiState.update {
+                    it.copy(
+                        subtitleData = validSubtitleData,
+                        isSubtitleReady = true,
+                        loadingState = AiCommentLoadingState.Idle
+                    )
+                }
 
+                // 4. 估算 Token
                 val summaryText = validSubtitleData.modelResult?.summary ?: ""
                 val subtitleText = validSubtitleData.modelResult?.subtitle?.firstOrNull()?.partSubtitle?.joinToString { it.content } ?: ""
                 val estimatedTokens = RateLimitHelper.estimateTokens(summaryText + subtitleText)
@@ -157,7 +192,7 @@ class AiCommentViewModel(
 
                 _uiState.update { it.copy(loadingState = AiCommentLoadingState.GeneratingComment) }
 
-                // 【修改】直接调用 Repository
+                // 5. 生成评论
                 val genResult = llmRepository.generateComment(validSubtitleData, style, _uiState.value.currentModel)
 
                 if (genResult is Resource.Error) {
@@ -170,24 +205,24 @@ class AiCommentViewModel(
                 _uiState.update { it.copy(generatedContent = commentText) }
 
                 val readingTime = Random.nextLong(5000, 10000)
-                appendLog("阅读中 (${readingTime/1000}s)...")
+                appendLog("阅读中 (${readingTime / 1000}s)...")
                 delay(readingTime)
 
+                // 6. 发送评论
                 _uiState.update { it.copy(loadingState = AiCommentLoadingState.SendingComment) }
-
-                // 【修改】直接调用 Repository
                 val postResult = commentRepository.postComment(currentVideo.info.id, commentText)
 
                 if (postResult is Resource.Success) {
                     appendLog("✅ 发送成功")
-                    recommendRepository.markVideoAsProcessed(currentVideo.info)
-                    recommendRepository.reportProgress(currentVideo.info.id, currentVideo.cid)
+                    // 【修改】调用 HomeRepository 标记已处理
+                    homeRepository.markVideoAsProcessed(currentVideo.info)
+                    homeRepository.reportProgress(currentVideo.info.id, currentVideo.cid)
                 } else {
                     appendLog("❌ 发送失败: ${postResult.message}")
                 }
 
                 val cooldown = Random.nextLong(15000, 30000)
-                appendLog("冷却 (${cooldown/1000}s)...")
+                appendLog("冷却 (${cooldown / 1000}s)...")
                 _uiState.update { it.copy(loadingState = AiCommentLoadingState.AutoRunning) }
                 delay(cooldown)
 
@@ -199,13 +234,16 @@ class AiCommentViewModel(
         }
     }
 
+    // endregion
+
+    // region Manual Operations
+
     fun generateComment(style: CommentStyle) {
         val state = _uiState.value
         if (state.subtitleData == null || (state.loadingState != AiCommentLoadingState.Idle && !state.isAutoRunning)) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(loadingState = AiCommentLoadingState.GeneratingComment, selectedStyle = style, error = null) }
-            // 【修改】直接调用 Repository
             val result = llmRepository.generateComment(state.subtitleData, style, state.currentModel)
             when (result) {
                 is Resource.Success -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, generatedContent = result.data ?: "") }
@@ -219,10 +257,16 @@ class AiCommentViewModel(
         if (_uiState.value.loadingState != AiCommentLoadingState.Idle && !_uiState.value.isAutoRunning) return
         viewModelScope.launch {
             _uiState.update { it.copy(loadingState = AiCommentLoadingState.FetchingRecommendations, error = null) }
-            // 【修改】直接调用 Repository
-            val result = recommendRepository.fetchCandidateVideos()
+            // 【修改】调用 HomeRepository
+            val result = homeRepository.fetchCandidateVideos()
             when (result) {
-                is Resource.Success -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, recommendationList = result.data ?: emptyList(), successMessage = "获取 ${result.data?.size ?: 0} 个推荐") }
+                is Resource.Success -> _uiState.update {
+                    it.copy(
+                        loadingState = AiCommentLoadingState.Idle,
+                        recommendationList = result.data ?: emptyList(),
+                        successMessage = "获取 ${result.data?.size ?: 0} 个推荐"
+                    )
+                }
                 is Resource.Error -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, error = result.message) }
                 else -> {}
             }
@@ -230,19 +274,46 @@ class AiCommentViewModel(
     }
 
     fun applyCandidate(candidate: CandidateVideo) {
-        _uiState.update { it.copy(videoTitle = candidate.info.title, videoCover = candidate.info.pic, bvid = candidate.info.bvid, oid = candidate.info.id, cid = candidate.cid, upMid = candidate.info.owner?.mid ?: 0L, subtitleData = candidate.subtitleData, isSubtitleReady = candidate.subtitleData != null, error = null, generatedContent = "", selectedStyle = if (it.isAutoRunning) it.selectedStyle else null) }
+        _uiState.update {
+            it.copy(
+                videoTitle = candidate.info.title,
+                videoCover = candidate.info.pic,
+                bvid = candidate.info.bvid,
+                oid = candidate.info.id,
+                cid = candidate.cid,
+                upMid = candidate.info.owner?.mid ?: 0L,
+                subtitleData = candidate.subtitleData,
+                isSubtitleReady = candidate.subtitleData != null,
+                error = null,
+                generatedContent = "",
+                selectedStyle = if (it.isAutoRunning) it.selectedStyle else null
+            )
+        }
         if (candidate.subtitleData == null && !_uiState.value.isAutoRunning) fetchSubtitle()
     }
 
     fun analyzeVideo(url: String) {
         if (url.isBlank() || (_uiState.value.loadingState != AiCommentLoadingState.Idle && !_uiState.value.isAutoRunning)) return
         viewModelScope.launch {
-            analyzeVideoUseCase(url).collect { resource ->
-                when (resource) {
-                    is Resource.Loading -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.AnalyzingVideo, error = null) }
-                    is Resource.Success -> { val detail = resource.data!!.detail; _uiState.update { it.copy(videoTitle = detail.title, videoCover = detail.pic, bvid = detail.bvid, oid = detail.aid, cid = detail.pages.first().cid, upMid = detail.owner.mid) }; fetchSubtitle() }
-                    is Resource.Error -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, error = resource.message) }
+            _uiState.update { it.copy(loadingState = AiCommentLoadingState.AnalyzingVideo, error = null) }
+            // 【修改】调用 HomeRepository
+            when (val resource = homeRepository.analyzeVideo(url)) {
+                is Resource.Success -> {
+                    val detail = resource.data!!.detail
+                    _uiState.update {
+                        it.copy(
+                            videoTitle = detail.title,
+                            videoCover = detail.pic,
+                            bvid = detail.bvid,
+                            oid = detail.aid,
+                            cid = detail.pages.first().cid,
+                            upMid = detail.owner.mid
+                        )
+                    }
+                    fetchSubtitle()
                 }
+                is Resource.Error -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, error = resource.message) }
+                else -> {}
             }
         }
     }
@@ -252,32 +323,66 @@ class AiCommentViewModel(
         if (state.bvid.isEmpty() || state.cid == 0L) return
         viewModelScope.launch {
             _uiState.update { it.copy(loadingState = AiCommentLoadingState.FetchingSubtitle) }
-            // 【修改】直接调用 Repository
             val result = subtitleRepository.getSubtitleWithSign(state.bvid, state.cid, state.upMid)
             when (result) {
-                is Resource.Success -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, subtitleData = result.data, isSubtitleReady = true, error = null) }
-                is Resource.Error -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, error = "无字幕: ${result.message}", isSubtitleReady = false) }
+                is Resource.Success -> _uiState.update {
+                    it.copy(
+                        loadingState = AiCommentLoadingState.Idle,
+                        subtitleData = result.data,
+                        isSubtitleReady = true,
+                        error = null
+                    )
+                }
+                is Resource.Error -> _uiState.update {
+                    it.copy(
+                        loadingState = AiCommentLoadingState.Idle,
+                        error = "无字幕: ${result.message}",
+                        isSubtitleReady = false
+                    )
+                }
                 else -> {}
             }
         }
     }
 
-    fun updateContent(text: String) { _uiState.update { it.copy(generatedContent = text) } }
+    fun updateContent(text: String) {
+        _uiState.update { it.copy(generatedContent = text) }
+    }
 
     fun sendComment() {
         val state = _uiState.value
         if (state.oid == 0L || state.generatedContent.isBlank() || (state.loadingState != AiCommentLoadingState.Idle && !state.isAutoRunning)) return
         viewModelScope.launch {
             _uiState.update { it.copy(loadingState = AiCommentLoadingState.SendingComment) }
-            // 【修改】直接调用 Repository
             val result = commentRepository.postComment(state.oid, state.generatedContent)
             when (result) {
-                is Resource.Success -> { launch { val currentItem = state.recommendationList.find { it.info.bvid == state.bvid }?.info; if (currentItem != null) recommendRepository.markVideoAsProcessed(currentItem); recommendRepository.reportProgress(state.oid, state.cid) }; _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, successMessage = "发送成功", generatedContent = "", recommendationList = it.recommendationList.filter { item -> item.info.bvid != it.bvid }) } }
+                is Resource.Success -> {
+                    launch {
+                        val currentItem = state.recommendationList.find { it.info.bvid == state.bvid }?.info
+                        if (currentItem != null) {
+                            // 【修改】调用 HomeRepository
+                            homeRepository.markVideoAsProcessed(currentItem)
+                        }
+                        homeRepository.reportProgress(state.oid, state.cid)
+                    }
+                    _uiState.update {
+                        it.copy(
+                            loadingState = AiCommentLoadingState.Idle,
+                            successMessage = "发送成功",
+                            generatedContent = "",
+                            recommendationList = it.recommendationList.filter { item -> item.info.bvid != it.bvid }
+                        )
+                    }
+                }
                 is Resource.Error -> _uiState.update { it.copy(loadingState = AiCommentLoadingState.Idle, error = result.message) }
                 else -> {}
             }
         }
     }
 
-    fun clearMessages() { _uiState.update { it.copy(error = null, successMessage = null) } }
+    fun clearMessages() {
+        _uiState.update { it.copy(error = null, successMessage = null) }
+    }
+
+    // endregion
 }
