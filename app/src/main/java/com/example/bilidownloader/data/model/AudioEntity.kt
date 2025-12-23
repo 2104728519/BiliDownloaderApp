@@ -4,7 +4,8 @@ import android.net.Uri
 import com.example.bilidownloader.core.util.DateUtils
 
 /**
- * 音频档案卡
+ * 领域模型：音频文件信息.
+ * 用于 UI 层展示本地扫描到的音频列表.
  */
 data class AudioEntity(
     val id: Long,
@@ -12,9 +13,9 @@ data class AudioEntity(
     val title: String,
     val duration: Long,
     val size: Long,
-    val dateAdded: Long // 系统给的是“秒”
+    val dateAdded: Long
 ) {
-    // 大小转文字 (3.2 MB)
+    // 格式化大小 (如 "3.2 MB")
     val sizeText: String
         get() {
             val kb = size / 1024.0
@@ -26,7 +27,7 @@ data class AudioEntity(
             }
         }
 
-    // 时长转文字 (03:45)
+    // 格式化时长 (如 "03:45")
     val durationText: String
         get() {
             val seconds = duration / 1000
@@ -35,10 +36,7 @@ data class AudioEntity(
             return String.format("%02d:%02d", m, s)
         }
 
-    // 【新增】日期转文字 (2025-12-07 10:30)
+    // 格式化日期 (系统时间戳需转换为毫秒)
     val dateText: String
-        get() {
-            // ★关键点：系统给的是秒，Java的日期工具要毫秒，必须 * 1000
-            return DateUtils.format(dateAdded * 1000L)
-        }
+        get() = DateUtils.format(dateAdded * 1000L)
 }

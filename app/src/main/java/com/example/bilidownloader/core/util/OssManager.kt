@@ -5,7 +5,7 @@ import com.alibaba.sdk.android.oss.ClientConfiguration
 import com.alibaba.sdk.android.oss.OSSClient
 import com.alibaba.sdk.android.oss.common.auth.OSSPlainTextAKSKCredentialProvider
 import com.alibaba.sdk.android.oss.model.PutObjectRequest
-import com.example.bilidownloader.BuildConfig // 导入 BuildConfig 类
+import com.example.bilidownloader.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -13,18 +13,26 @@ import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+/**
+ * 阿里云 OSS (对象存储) 管理器.
+ *
+ * 负责将本地音频文件临时上传至 OSS，以供阿里云听悟 (ASR) 服务进行转写。
+ * 包含上传、生成签名 URL 和删除文件功能。
+ */
 object OssManager {
 
-
-
-    private const val ENDPOINT = "https://oss-cn-beijing.aliyuncs.com" // 你的 Endpoint
-    private const val BUCKET_NAME = "2104728519" // 你的 Bucket 名字
+    // OSS 存储桶配置
+    private const val ENDPOINT = "https://oss-cn-beijing.aliyuncs.com"
+    private const val BUCKET_NAME = "2104728519"
 
     private var ossClient: OSSClient? = null
 
+    /**
+     * 初始化 OSS 客户端 (单例模式).
+     * 从 BuildConfig 读取 AK/SK，确保密钥不硬编码在源码中。
+     */
     private fun getClient(context: Context): OSSClient {
         if (ossClient == null) {
-            // 【关键改动 3】从 BuildConfig 中安全地获取密钥
             val credentialProvider = OSSPlainTextAKSKCredentialProvider(
                 BuildConfig.OSS_KEY_ID,
                 BuildConfig.OSS_KEY_SECRET
@@ -39,32 +47,33 @@ object OssManager {
     }
 
     /**
-     * 上传文件并获取签名 URL
+     * 上传文件并获取带签名的访问 URL.
+     *
+     * @return 有效期 1 小时的签名 URL，供 ASR 服务下载使用.
      */
     suspend fun uploadAndGetUrl(context: Context, file: File): String = withContext(Dispatchers.IO) {
         val client = getClient(context)
-        val objectKey = "audio-uploads/${file.name}" // OSS 上的路径
+        val objectKey = "audio-uploads/${file.name}" // 存储路径
 
-        // 1. 上传
+        // 1. 同步上传
         val put = PutObjectRequest(BUCKET_NAME, objectKey, file.absolutePath)
 
         suspendCancellableCoroutine<Unit> { continuation ->
             try {
-                client.putObject(put) // 同步上传 (因为已经在 IO 线程了)
+                client.putObject(put)
                 continuation.resume(Unit)
             } catch (e: Exception) {
                 continuation.resumeWithException(e)
             }
         }
 
-        // 2. 生成签名 URL (有效期 1 小时，足够转写用了)
-        // 这里的 url 是给百炼 API 用的
+        // 2. 生成签名 URL (过期时间 3600秒)
         val url = client.presignConstrainedObjectURL(BUCKET_NAME, objectKey, 3600)
         return@withContext url
     }
 
     /**
-     * 删除 OSS 文件
+     * 删除 OSS 上的临时文件.
      */
     suspend fun deleteFile(context: Context, fileName: String) = withContext(Dispatchers.IO) {
         try {

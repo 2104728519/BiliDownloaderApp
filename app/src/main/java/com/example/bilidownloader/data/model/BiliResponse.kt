@@ -1,102 +1,105 @@
 package com.example.bilidownloader.data.model
 
-// =========================================================
-// 1. 基础通用模型
-// =========================================================
+// region 1. Generic Response Wrapper (通用响应壳)
 
-// B 站所有的回复外面都包着这一层
-// T 代表“泛型”，意思就是里面装什么都可以（可能是用户信息，也可能是视频地址）
+/**
+ * B 站 API 通用响应泛型类.
+ * @param code 0 表示成功，其他值为错误码.
+ * @param data 具体业务数据.
+ */
 data class BiliResponse<T>(
-    val code: Int,      // 状态码，0 代表成功，其他数字代表出错了
-    val message: String?, // 如果出错了，这里会有错误原因
-    val data: T?        // 这里才是真正我们要的数据
+    val code: Int,
+    val message: String?,
+    val data: T?
 )
 
-// =========================================================
-// 2. Wbi 加密相关模型
-// =========================================================
+// endregion
 
-// 这里的盒子是为了装【用户信息 API】的数据
-// 我们需要从这里拿到加密用的密钥
+// region 2. WBI Keys (密钥数据)
+
 data class NavData(
-    val wbi_img: WbiImg // 里面包含密钥图片的信息
+    val wbi_img: WbiImg
 )
 
 data class WbiImg(
-    val img_url: String, // 图片 Key
-    val sub_url: String  // 子 Key
+    val img_url: String, // 混淆密钥 A
+    val sub_url: String  // 混淆密钥 B
 )
 
-// =========================================================
-// 3. 视频详情相关模型
-// =========================================================
+// endregion
 
-// 视频详情数据：标题、封面、作者、分集列表都在这里
+// region 3. Video Detail (视频详情)
+
 data class VideoDetail(
     val bvid: String,
     val aid: Long,
-    val title: String, // 标题
-    val pic: String,   // 封面图片链接
-    val desc: String,  // 简介
-    val owner: Owner,  // 作者信息
-    val pages: List<PageData> // 分集列表 (CID 藏在这里)
+    val title: String,
+    val pic: String,
+    val desc: String,
+    val owner: Owner,
+    val pages: List<PageData> // 分P信息，用于获取 cid
 )
 
 data class Owner(
     val mid: Long,
-    val name: String, // UP主名字
-    val face: String  // UP主头像
+    val name: String,
+    val face: String
 )
 
 data class PageData(
     val cid: Long,
-    val part: String, // 分集标题
+    val part: String,
     val page: Int
 )
 
-// =========================================================
-// 4. 播放地址相关模型 (修改部分)
-// =========================================================
+// endregion
 
+// region 4. Play URL & DASH Info (播放地址与流媒体)
+
+/**
+ * 视频流媒体信息.
+ * 包含 DASH 格式的音视频流以及备用的 durl (MP4) 格式.
+ */
 data class PlayData(
-    val timelength: Long?,              // 视频总时长 (毫秒)
-    val accept_quality: List<Int>?,      // 例如: [80, 64, 32, 16]
-    val accept_description: List<String>?, // 例如: ["1080P 高清", "720P 高清", ...]
+    val timelength: Long?,
+    val accept_quality: List<Int>?,      // 支持的画质 ID 列表
+    val accept_description: List<String>?, // 画质描述 (如 "1080P 高清")
     val dash: DashInfo?,
-    val durl: List<DurlInfo>?           // 非 Dash 模式下的视频地址列表
+    val durl: List<DurlInfo>?           // 传统 MP4 直链 (非 DASH)
 )
 
 data class DurlInfo(
     val url: String,
-    val size: Long // 普通 MP4 模式也有 size
+    val size: Long
 )
 
-// 【修改】DashInfo 增加 dolby 和 flac 字段
 data class DashInfo(
     val video: List<MediaInfo>,
     val audio: List<MediaInfo>?,
-    val dolby: DolbyInfo?, // 👈 新增：杜比全景声
-    val flac: FlacInfo?    // 👈 新增：无损 Hi-Res
+    val dolby: DolbyInfo?, // 杜比全景声
+    val flac: FlacInfo?    // Hi-Res 无损音频
 )
 
-// 【新增】杜比信息
 data class DolbyInfo(
     val type: Int,
-    val audio: List<MediaInfo>? // 杜比音轨列表
+    val audio: List<MediaInfo>?
 )
 
-// 【新增】FLAC 信息 (注意：根据 API 文档，flac.audio 是对象)
 data class FlacInfo(
-    val display: Boolean, // 是否显示 FLAC 选项
-    val audio: MediaInfo? // FLAC 音轨信息
+    val display: Boolean,
+    val audio: MediaInfo?
 )
 
-// 视频流或音频流的基础信息
+/**
+ * 基础媒体流信息 (视频轨或音频轨).
+ */
 data class MediaInfo(
-    val id: Int,         // 画质/音质 ID (例如: 30280, 30250, ...)
-    val baseUrl: String, // 实际的下载地址
-    val bandwidth: Long, // 码率 (bps)，用于计算体积
-    val codecs: String?, // 编码格式，例如 "avc1.64001F" 或 "flac"
-    val width: Int?,     // 视频宽度 (仅视频流有)
-    val height: Int?     // 视频高度 (仅视频流有)
+    val id: Int,         // 质量 ID (30280=192k音频, 80=1080P视频等)
+    val baseUrl: String, // 下载链接
+    val bandwidth: Long, // 比特率
+    val codecs: String?, // 编码格式 (avc1, hev1, flac...)
+    val width: Int?,
+    val height: Int?
 )
+
+// endregion

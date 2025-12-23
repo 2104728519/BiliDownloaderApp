@@ -1,14 +1,14 @@
 package com.example.bilidownloader.data.model
 
-import com.google.gson.annotations.SerializedName
+// region 1. Request
 
-// 1. 请求体
+/**
+ * Google Gemini API 请求体.
+ */
 data class GeminiRequest(
     val contents: List<GeminiContent>,
-
-    // [新增] 安全设置：关掉所有过滤
+    // 安全设置：默认全部放行 (BLOCK_NONE) 以避免误杀
     val safetySettings: List<SafetySetting> = defaultSafetySettings(),
-
     val generationConfig: GeminiConfig = GeminiConfig()
 ) {
     companion object {
@@ -24,7 +24,6 @@ data class GeminiRequest(
     }
 }
 
-// 2. 安全设置数据类
 data class SafetySetting(
     val category: String,
     val threshold: String
@@ -39,16 +38,22 @@ data class GeminiPart(
 )
 
 data class GeminiConfig(
-    val temperature: Float = 0.8f, // 稍微调高一点，让评论更活泼
-    val maxOutputTokens: Int = 2000 // 给足空间，防止物理截断
+    val temperature: Float = 0.8f, // 创造性参数 (0.0~1.0)
+    val maxOutputTokens: Int = 2000
 )
 
-// 3. 响应体
+// endregion
+
+// region 2. Response
+
 data class GeminiResponse(
     val candidates: List<GeminiCandidate>?
 )
 
 data class GeminiCandidate(
     val content: GeminiContent?,
-    val finishReason: String? // 这里会告诉你为什么停止 (STOP, MAX_TOKENS, SAFETY)
+    // 结束原因：STOP(正常), MAX_TOKENS(超长), SAFETY(安全拦截)
+    val finishReason: String?
 )
+
+// endregion

@@ -2,7 +2,10 @@ package com.example.bilidownloader.data.model
 
 import com.google.gson.annotations.SerializedName
 
-// 1. 播放器配置接口响应
+/**
+ * 播放器配置接口 V2 响应.
+ * 包含 CC 字幕列表 (Plan B 兜底方案).
+ */
 data class PlayerV2Response(
     val code: Int,
     val data: PlayerV2Data?
@@ -19,11 +22,13 @@ data class PlayerSubtitleInfo(
 data class SubtitleItem(
     val id: Long,
     val lan: String,
-    @SerializedName("lan_doc") val lanDoc: String, // 例如 "中文（自动生成）"
-    @SerializedName("subtitle_url") val subtitleUrl: String // 字幕 JSON 文件地址
+    @SerializedName("lan_doc") val lanDoc: String, // 字幕语言描述 (如 "中文")
+    @SerializedName("subtitle_url") val subtitleUrl: String // JSON 文件 URL
 )
 
-// 2. 字幕 JSON 文件内容结构 (从 subtitle_url 下载下来的内容)
+/**
+ * 原始字幕 JSON 文件结构.
+ */
 data class RawSubtitleJson(
     val body: List<RawSubtitleItem>?
 )
@@ -31,5 +36,5 @@ data class RawSubtitleJson(
 data class RawSubtitleItem(
     val from: Double, // 开始时间 (秒)
     val to: Double,   // 结束时间 (秒)
-    val content: String // 字幕文本
+    val content: String
 )

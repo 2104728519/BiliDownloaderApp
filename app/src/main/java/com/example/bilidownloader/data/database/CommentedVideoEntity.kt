@@ -4,8 +4,8 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 /**
- * 已处理/已评论视频记录表
- * 用于本地过滤，防止重复处理同一个视频
+ * 已自动化评论过的视频实体.
+ * 充当本地布隆过滤器的角色，防止重复请求.
  */
 @Entity(tableName = "commented_videos")
 data class CommentedVideoEntity(
@@ -13,5 +13,5 @@ data class CommentedVideoEntity(
     val bvid: String,
     val oid: Long,
     val title: String,
-    val timestamp: Long = System.currentTimeMillis() // 处理时间
+    val timestamp: Long = System.currentTimeMillis()
 )

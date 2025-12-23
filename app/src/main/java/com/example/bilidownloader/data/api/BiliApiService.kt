@@ -4,10 +4,9 @@ import com.example.bilidownloader.data.model.*
 import retrofit2.Call
 import retrofit2.http.*
 
-// =========================================================
-// UserInfo 数据模型
-// =========================================================
-
+/**
+ * 用户信息基础响应结构.
+ */
 data class UserInfoResponse(
     val code: Int,
     val data: UserInfoData?
@@ -20,14 +19,18 @@ data class UserInfoData(
     val isLogin: Boolean
 )
 
-// =========================================================
-
 /**
- * B站 API 接口定义
+ * B 站核心 API 接口定义.
+ * 涵盖了视频详情、流地址获取、WBI 密钥交换、登录流程、评论及字幕获取等全套功能.
  */
 interface BiliApiService {
 
-    // 1. 获取导航信息 (用于 WBI 签名)
+    // region 1. Navigation & Auth (导航与鉴权)
+
+    /**
+     * 获取导航栏用户信息.
+     * 主要用途：获取 WBI 签名所需的 img_key 和 sub_key.
+     */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -35,7 +38,10 @@ interface BiliApiService {
     @GET("x/web-interface/nav")
     fun getNavInfo(): Call<BiliResponse<NavData>>
 
-    // 获取当前登录用户的信息
+    /**
+     * 获取当前登录用户的个人信息.
+     * 用于验证 Cookie 有效性.
+     */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -43,8 +49,14 @@ interface BiliApiService {
     @GET("x/web-interface/nav")
     fun getSelfInfo(): Call<UserInfoResponse>
 
+    // endregion
 
-    // 2. 获取视频详细信息
+    // region 2. Video Info & Stream (视频信息与流媒体)
+
+    /**
+     * 获取视频详细信息 (View).
+     * 包含标题、简介、分集 CID 等核心元数据.
+     */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -52,7 +64,10 @@ interface BiliApiService {
     @GET("x/web-interface/view")
     fun getVideoView(@Query("bvid") bvid: String): Call<BiliResponse<VideoDetail>>
 
-    // 3. 获取视频播放地址
+    /**
+     * 获取视频播放地址 (PlayUrl).
+     * 需传入经 WBI 签名的参数，支持 DASH 格式（含杜比、Hi-Res）.
+     */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -60,8 +75,13 @@ interface BiliApiService {
     @GET("x/player/wbi/playurl")
     fun getPlayUrl(@QueryMap params: Map<String, String>): Call<BiliResponse<PlayData>>
 
+    // endregion
+
+    // region 3. Subtitle & AI Summary (字幕与总结)
+
     /**
-     * 获取视频 AI 摘要和字幕 (高风险接口，易被风控)
+     * 获取视频 AI 摘要和字幕 (Web 接口).
+     * 注意：该接口风险较高，易触发风控.
      */
     @GET("x/web-interface/view/conclusion/get")
     suspend fun getConclusion(
@@ -74,13 +94,9 @@ interface BiliApiService {
         @Query("w_rid") wRid: String
     ): ConclusionResponse
 
-    // =========================================================
-    // 【Ver 2.5.0 新增】播放器字幕兜底方案
-    // =========================================================
-
     /**
-     * 获取播放器配置 (含字幕列表)
-     * 这是一个核心高频接口，模拟播放器行为，极少被风控
+     * 获取播放器配置 V2 (Plan B 字幕方案).
+     * 该接口用于获取播放器内部挂载的字幕列表（CC 字幕），风控概率低，作为兜底方案.
      */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -88,22 +104,21 @@ interface BiliApiService {
     )
     @GET("x/player/wbi/v2")
     suspend fun getPlayerV2(
-        @Query("aid") aid: Long, // 内部使用的是 aid (即 oid)
+        @Query("aid") aid: Long,
         @Query("cid") cid: Long,
         @Query("wts") wts: Long,
         @Query("w_rid") wRid: String
     ): PlayerV2Response
 
     /**
-     * 下载字幕 JSON 文件
-     * 因为 URL 指向 B 站 CDN (subtitle.akamaized.net 等)，所以使用 @Url 动态传入
+     * 下载字幕 JSON 文件.
      */
     @GET
     suspend fun downloadSubtitleJson(@Url url: String): RawSubtitleJson
 
-    // ===========================
-    // 登录/退出相关接口 (保持不变)
-    // ===========================
+    // endregion
+
+    // region 4. Login Flow (登录流程)
 
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -152,9 +167,9 @@ interface BiliApiService {
         @Field("biliCSRF") csrf: String
     ): Call<BiliResponse<Any>>
 
-    // ===========================
-    // 评论相关接口 (保持不变)
-    // ===========================
+    // endregion
+
+    // region 5. Interaction (互动与推荐)
 
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -170,10 +185,6 @@ interface BiliApiService {
         @Field("plat") plat: Int = 1
     ): BiliResponse<ReplyResultData>
 
-    // ===========================
-    // 推荐与上报接口 (保持不变)
-    // ===========================
-
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -185,6 +196,10 @@ interface BiliApiService {
         @Query("ps") ps: Int = 10
     ): RecommendResponse
 
+    /**
+     * 上报视频观看进度.
+     * 用于欺骗推荐算法，使其认为用户对该视频感兴趣.
+     */
     @Headers(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
@@ -197,6 +212,8 @@ interface BiliApiService {
         @Field("progress") progress: Int = 0,
         @Field("csrf") csrf: String
     ): BiliResponse<Any>
+
+    // endregion
 }
 
 data class ReplyResultData(

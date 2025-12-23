@@ -1,9 +1,7 @@
 package com.example.bilidownloader.data.model
 
-import com.google.gson.annotations.SerializedName
-
 /**
- * 首页推荐流响应
+ * 首页推荐流响应结构.
  */
 data class RecommendResponse(
     val code: Int,
@@ -15,15 +13,12 @@ data class RecommendData(
     val item: List<RecommendItem>?
 )
 
-/**
- * 单个推荐视频项
- */
 data class RecommendItem(
-    val id: Long,        // 对应 oid/aid
+    val id: Long,        // 视频 oid
     val bvid: String,
     val title: String,
     val pic: String,     // 封面图
-    val uri: String,     // 跳转链接 (bilibili://video/...)
+    val uri: String,     // 唤起 App 的 URI
     val owner: RecommendOwner?,
     val stat: RecommendStat?
 )

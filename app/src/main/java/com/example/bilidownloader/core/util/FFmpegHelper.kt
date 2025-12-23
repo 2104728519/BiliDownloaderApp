@@ -7,14 +7,20 @@ import java.io.File
 import kotlin.coroutines.resume
 
 /**
- * 剪辑师助手
- * 负责调用 RxFFmpeg 库进行音视频合并、转码和剪辑
+ * FFmpeg 命令执行封装工具.
+ *
+ * 负责构建并执行具体的 FFmpeg 指令，用于音视频合并、格式转换和裁剪。
+ * 使用 suspendCancellableCoroutine 将基于回调的 RxFFmpeg 库转换为协程挂起函数。
  */
 object FFmpegHelper {
 
     /**
-     * 合并视频和音频
-     * 为了兼容性，音频转码为 320k AAC
+     * 合并独立的视频流和音频流.
+     *
+     * 采用 `-c:v copy` 快速流复制视频，音频统一转码为 320k AAC 以保证兼容性。
+     * @param videoFile 纯视频轨道文件.
+     * @param audioFile 纯音频轨道文件.
+     * @param outFile 输出文件路径.
      */
     suspend fun mergeVideoAudio(videoFile: File, audioFile: File, outFile: File): Boolean {
         val commands = arrayOf(
@@ -32,7 +38,8 @@ object FFmpegHelper {
     }
 
     /**
-     * 封装 FLAC 音频 (无损)
+     * 封装为 FLAC 无损音频.
+     * 直接流复制，不进行重编码。
      */
     suspend fun remuxToFlac(inputFile: File, outFile: File): Boolean {
         val commands = arrayOf(
@@ -46,44 +53,46 @@ object FFmpegHelper {
     }
 
     /**
-     * 音频转码为 MP3
+     * 音频转码为 MP3 (VBR 高质量).
      */
     suspend fun convertAudioToMp3(audioFile: File, outFile: File): Boolean {
         val commands = arrayOf(
             "ffmpeg",
             "-y",
             "-i", audioFile.absolutePath,
-            "-vn",
+            "-vn", // 禁用视频流
             "-acodec", "libmp3lame",
-            "-q:a", "2",
+            "-q:a", "2", // VBR 质量等级 2 (约为 170-210kbps)
             outFile.absolutePath
         )
         return runCommand(commands)
     }
 
     /**
-     * 【新增】裁剪音频 (修复报错的核心方法)
-     * @param inputFile 源文件
-     * @param outFile 输出文件
-     * @param startTime 开始时间 (秒)
-     * @param duration 持续时长 (秒)
+     * 精确裁剪音频.
+     *
+     * @param startTime 开始时间 (秒).
+     * @param duration 持续时长 (秒).
+     * 注意：使用 libmp3lame 重编码以确保裁剪点准确，避免关键帧问题。
      */
     suspend fun trimAudio(inputFile: File, outFile: File, startTime: Double, duration: Double): Boolean {
         val commands = arrayOf(
             "ffmpeg",
             "-y",
             "-i", inputFile.absolutePath,
-            "-ss", String.format("%.3f", startTime), // 精确到毫秒
+            "-ss", String.format("%.3f", startTime), // 精确到毫秒级定位
             "-t", String.format("%.3f", duration),
-            "-acodec", "libmp3lame", // 统一剪辑为 MP3 格式
-            "-q:a", "2", // 高音质 VBR
+            "-acodec", "libmp3lame",
+            "-q:a", "2",
             outFile.absolutePath
         )
         println("FFmpeg裁剪命令: ${commands.joinToString(" ")}")
         return runCommand(commands)
     }
 
-    // 内部执行命令的方法
+    /**
+     * 内部方法：执行 FFmpeg 命令并监听结果.
+     */
     private suspend fun runCommand(commands: Array<String>): Boolean {
         return suspendCancellableCoroutine { continuation ->
             val mySubscriber = object : RxFFmpegSubscriber() {

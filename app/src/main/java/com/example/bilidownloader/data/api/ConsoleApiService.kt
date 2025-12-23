@@ -7,12 +7,17 @@ import retrofit2.http.Header
 import retrofit2.http.Headers
 import retrofit2.http.POST
 
+/**
+ * 阿里云控制台爬虫接口.
+ *
+ * 模拟浏览器行为，请求控制台的私有 API 以获取 AI 模型调用量数据。
+ * 该接口必须伪装 User-Agent 以避免被阿里云风控系统识别为机器人。
+ */
 interface ConsoleApiService {
 
     @POST("data/api.json")
     @FormUrlEncoded
     @Headers(
-        // 伪装成 Edge 浏览器，避免被风控拦截
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
         "Referer: https://bailian.console.aliyun.com/",
         "Origin: https://bailian.console.aliyun.com"
@@ -24,7 +29,7 @@ interface ConsoleApiService {
         @Field("api") api: String = "zeldaEasy.bailian-telemetry.monitor.getMonitorDataWithOss",
         @Field("_v") v: String = "undefined",
         @Field("region") region: String = "cn-beijing",
-        @Field("sec_token") secToken: String, // 必须从页面获取
-        @Field("params") paramsJson: String   // 复杂的 JSON 参数
+        @Field("sec_token") secToken: String,
+        @Field("params") paramsJson: String
     ): ConsoleResponse
 }
