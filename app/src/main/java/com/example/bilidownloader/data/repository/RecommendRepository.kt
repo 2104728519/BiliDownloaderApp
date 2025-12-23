@@ -10,13 +10,18 @@ import com.example.bilidownloader.data.model.RecommendItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * 推荐流仓库.
+ *
+ * 负责获取 B 站首页推荐视频，并维护“已处理视频”的本地状态。
+ * 同时负责上报观看进度，以“欺骗” B 站推荐算法，使其推送更多相关视频。
+ */
 class RecommendRepository(
     private val context: Context,
     private val commentedVideoDao: CommentedVideoDao
 ) {
     private val apiService = NetworkModule.biliService
 
-    // 获取原始推荐流 (不含字幕检查)
     suspend fun fetchRawRecommend(wts: Long, wRid: String): Resource<List<RecommendItem>> = withContext(Dispatchers.IO) {
         try {
             val response = apiService.getRecommendFeed(wts, wRid)
@@ -30,12 +35,10 @@ class RecommendRepository(
         }
     }
 
-    // 检查本地数据库是否已处理过
     suspend fun isVideoProcessed(bvid: String): Boolean {
         return commentedVideoDao.isProcessed(bvid)
     }
 
-    // 标记视频为已处理
     suspend fun markVideoAsProcessed(item: RecommendItem) {
         val entity = CommentedVideoEntity(
             bvid = item.bvid,
@@ -45,11 +48,13 @@ class RecommendRepository(
         commentedVideoDao.insert(entity)
     }
 
-    // 上报观看进度 (欺骗推荐算法)
+    /**
+     * 上报模拟观看进度 (10秒).
+     * 用于增加账号活跃度权重.
+     */
     suspend fun reportProgress(aid: Long, cid: Long) {
         try {
             val csrf = CookieManager.getCookieValue(context, "bili_jct") ?: return
-            // 上报进度为 10 秒，表示“稍微看了一点”
             apiService.reportHistory(aid, cid, progress = 10, csrf = csrf)
         } catch (e: Exception) {
             e.printStackTrace()

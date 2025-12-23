@@ -7,23 +7,25 @@ import com.example.bilidownloader.data.model.AudioEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * 本地媒体仓库.
+ *
+ * 负责通过 ContentResolver 扫描 Android 系统的 MediaStore 数据库，
+ * 提取外部存储中的所有音频文件信息。
+ */
 class MediaRepository(private val context: Context) {
 
-    /**
-     * 开始搜查！
-     * @return 找到的所有音频文件列表
-     */
     suspend fun getAllAudio(): List<AudioEntity> = withContext(Dispatchers.IO) {
         val audioList = mutableListOf<AudioEntity>()
 
-        // 1. 我们要查哪张表？ -> 外部存储里的音频表
+        // 1. 确定查询 URI (外部存储音频表)
         val collection = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         } else {
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         }
 
-        // 2. 我们要看哪些列的数据？(ID, 标题, 时长, 大小, 时间)
+        // 2. 定义需要的字段投影
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.DISPLAY_NAME,
@@ -32,56 +34,42 @@ class MediaRepository(private val context: Context) {
             MediaStore.Audio.Media.DATE_ADDED
         )
 
-        // 3. 筛选条件：我们要时长大于 0 的 (防止搜到 0秒的损坏文件)
+        // 3. 过滤条件：时长 > 0 (排除损坏文件)
         val selection = "${MediaStore.Audio.Media.DURATION} > ?"
         val selectionArgs = arrayOf("0")
 
-        // 4. 排序：按添加时间倒序 (最新的在最上面)
+        // 4. 排序：按添加时间倒序
         val sortOrder = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
-        // 5. 开始查询 (query)
-        // contentResolver 是系统的数据库管理员
         context.contentResolver.query(
             collection,
             projection,
             selection,
             selectionArgs,
             sortOrder
-        )?.use { cursor -> // use 方法会自动关闭 cursor，防止内存泄漏
-
-            // 找到每一列对应的索引 (第几列是 ID，第几列是标题...)
+        )?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
 
-            // 6. 一行一行读数据
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
-                val name = cursor.getString(nameColumn) ?: "未知音频"
-                val duration = cursor.getLong(durationColumn)
-                val size = cursor.getLong(sizeColumn)
-                val date = cursor.getLong(dateColumn)
-
-                // 拼装 URI (货架号)
                 val contentUri = ContentUris.withAppendedId(collection, id)
 
-                // 填卡片
                 audioList.add(
                     AudioEntity(
                         id = id,
                         uri = contentUri,
-                        title = name,
-                        duration = duration,
-                        size = size,
-                        dateAdded = date
+                        title = cursor.getString(nameColumn) ?: "未知音频",
+                        duration = cursor.getLong(durationColumn),
+                        size = cursor.getLong(sizeColumn),
+                        dateAdded = cursor.getLong(dateColumn)
                     )
                 )
             }
         }
-
-        // 返回结果
         return@withContext audioList
     }
 }

@@ -8,8 +8,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 评论操作仓库
- * 负责调用 B 站接口发送评论，自动处理 CSRF Token
+ * 评论功能仓库.
+ *
+ * 负责处理 B 站评论区的交互逻辑。核心职责是自动提取 CSRF Token (bili_jct)
+ * 并将其注入到发送请求中，防止因 CSRF 校验失败导致无法评论。
  */
 class CommentRepository(private val context: Context) {
 
@@ -17,26 +19,25 @@ class CommentRepository(private val context: Context) {
 
     suspend fun postComment(oid: Long, message: String): Resource<String> = withContext(Dispatchers.IO) {
         try {
-            // 1. 获取 CSRF Token (bili_jct)
-            // 注意：CookieManager.getCookieValue 需要传入 key="bili_jct"
+            // 1. 提取 CSRF Token
+            // B 站所有写操作 (POST) 均校验 Header Cookie 中的 bili_jct 字段
             val csrfToken = CookieManager.getCookieValue(context, "bili_jct")
 
             if (csrfToken.isNullOrEmpty()) {
                 return@withContext Resource.Error("未登录或无法获取 CSRF Token，请先在设置页登录")
             }
 
-            // 2. 调用接口
+            // 2. 执行请求
             val response = apiService.addReply(
                 oid = oid,
                 message = message,
                 csrf = csrfToken
             )
 
-            // 3. 处理结果
+            // 3. 结果映射
             if (response.code == 0) {
                 Resource.Success("发送成功")
             } else {
-                // 处理常见错误码 (如 -101 未登录, 12002 评论区关闭)
                 val errorMsg = when (response.code) {
                     -101 -> "账号未登录"
                     12002 -> "评论区已关闭"
