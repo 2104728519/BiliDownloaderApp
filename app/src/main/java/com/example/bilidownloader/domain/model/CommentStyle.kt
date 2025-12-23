@@ -1,17 +1,20 @@
 package com.example.bilidownloader.domain.model
 
 /**
- * 评论风格模型 (不再是 Enum)
- * 兼容官方预置和用户自定义
+ * 领域模型：评论风格.
+ *
+ * 统一了系统内置风格 (Built-in) 和用户自定义风格 (Custom).
+ * @property promptInstruction 发送给 AI 的具体指令模板.
+ * @property isBuiltIn 标记是否为只读的内置风格.
  */
 data class CommentStyle(
-    val id: Long = 0,           // 数据库ID (预置风格为负数或0)
-    val label: String,          // 显示在 Chip 上的文字
-    val promptInstruction: String, // 发送给 AI 的指令
-    val isBuiltIn: Boolean = false // 是否为内置风格 (内置不可删除)
+    val id: Long = 0,
+    val label: String,
+    val promptInstruction: String,
+    val isBuiltIn: Boolean = false
 ) {
     companion object {
-        // 定义官方预置风格列表
+        /** 官方预置风格列表 (负数 ID 以区别于数据库 ID) */
         val BUILT_IN_STYLES = listOf(
             CommentStyle(-1, "幽默玩梗", "请用幽默风趣、带点B站热梗（如：好活当赏、下次一定）的语气进行评论，字数在50字以内。", true),
             CommentStyle(-2, "课代表总结", "请作为'课代表'，用简洁的列表形式总结视频的核心知识点，语气专业且干练。", true),

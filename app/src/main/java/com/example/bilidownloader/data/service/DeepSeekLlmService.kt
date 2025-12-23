@@ -10,6 +10,14 @@ import com.example.bilidownloader.domain.model.AiProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * DeepSeek AI 服务实现类.
+ *
+ * 适配 DeepSeek V3 和 R1 模型。
+ * 特别针对 R1 推理模型进行了优化：
+ * 1. 动态调整 Temperature (推理模型需低温).
+ * 2. 捕获并打印思维链 (Chain of Thought) 内容.
+ */
 class DeepSeekLlmService : ILlmService {
 
     override val provider: AiProvider = AiProvider.DEEPSEEK
@@ -20,12 +28,13 @@ class DeepSeekLlmService : ILlmService {
             val apiKey = BuildConfig.DEEPSEEK_API_KEY
             if (apiKey.isEmpty()) return@withContext Resource.Error("DeepSeek API Key 未配置")
 
-            // 1. 构建请求
             val messages = listOf(
                 OpenAiMessage(role = "user", content = prompt)
             )
 
-            // 针对 DeepSeek R1 (推理模型) 官方建议温度设为 0.6，V3 建议 1.0-1.3
+            // 参数调优：
+            // - R1 (reasoner) 建议 temp=0.6 以保证推理逻辑严密.
+            // - V3 (chat) 建议 temp=1.3 以增加创造性.
             val temp = if (modelConfig.id.contains("reasoner")) 0.6f else 1.3f
 
             val request = OpenAiRequest(
@@ -35,16 +44,14 @@ class DeepSeekLlmService : ILlmService {
                 maxTokens = 4096
             )
 
-            // 2. 调用 API
             val response = apiService.createChatCompletion(
                 authorization = "Bearer $apiKey",
                 request = request
             )
 
-            // 3. 解析结果
             val message = response.choices?.firstOrNull()?.message
 
-            // [新增] 打印 DeepSeek R1 的思考过程 (思维链)
+            // [调试日志] 输出 R1 模型的思维链过程
             if (!message?.reasoningContent.isNullOrEmpty()) {
                 println("=== DeepSeek R1 深度思考 (思维链) ===")
                 println(message?.reasoningContent)
@@ -57,12 +64,11 @@ class DeepSeekLlmService : ILlmService {
                 return@withContext Resource.Success(content.trim())
             }
 
-            // 特殊情况处理：如果 R1 思考了很久但最终 content 为空（可能被过滤或未命中输出）
             Resource.Error("DeepSeek 返回空内容 (已尝试解析 content)")
 
         } catch (e: Exception) {
             e.printStackTrace()
-            // 简单处理 HTTP 错误
+            // 错误映射
             if (e.message?.contains("402") == true) {
                 return@withContext Resource.Error("DeepSeek 余额不足")
             }

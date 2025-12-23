@@ -7,13 +7,20 @@ import com.example.bilidownloader.core.util.RateLimitHelper
 import com.example.bilidownloader.data.model.GeminiContent
 import com.example.bilidownloader.data.model.GeminiPart
 import com.example.bilidownloader.data.model.GeminiRequest
-import com.example.bilidownloader.data.model.GeminiConfig // [新增引用]
+import com.example.bilidownloader.data.model.GeminiConfig
 import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.AiProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 
+/**
+ * Google Gemini/Gemma 服务实现类.
+ *
+ * 核心特性：
+ * **智能托管模式 (Smart Mode)**: 集成 [RateLimitHelper]，根据任务 Token 量和 API 配额（RPM/TPM）
+ * 自动选择最优模型（Gemma 27B vs Gemini Flash），以实现免费配额的最大化利用。
+ */
 class GoogleLlmService : ILlmService {
 
     override val provider: AiProvider = AiProvider.GOOGLE
@@ -24,7 +31,7 @@ class GoogleLlmService : ILlmService {
             val apiKey = BuildConfig.GEMINI_API_KEY
             if (apiKey.isEmpty()) return@withContext Resource.Error("Google API Key 未配置")
 
-            // 1. 确定要使用的实际模型 ID
+            // 1. 智能模型选择策略
             val targetModelId = if (modelConfig.isSmartMode) {
                 val estimatedTokens = RateLimitHelper.estimateTokens(prompt)
                 val bestModel = RateLimitHelper.selectBestModel(estimatedTokens)
@@ -37,35 +44,32 @@ class GoogleLlmService : ILlmService {
                 modelConfig.id
             }
 
-            // 2. 准备请求 【修改点：显式传入配置】
+            // 2. 构建请求
             val request = GeminiRequest(
                 contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
-                // 强制指定配置：拉满输出上限，并调整随机性
                 generationConfig = GeminiConfig(
-                    temperature = 1.0f,      // 适度提高创造性，使评论不那么机械
-                    maxOutputTokens = 8192   // 提升至 8K 上限，防止内容截断
+                    temperature = 1.0f,
+                    maxOutputTokens = 8192
                 )
             )
 
-            // 3. 发送请求
+            // 3. 执行调用
             val response = apiService.generateContent(
                 modelName = targetModelId,
                 apiKey = apiKey,
                 request = request
             )
 
-            // 4. 成功后记录配额消耗
+            // 4. 记录配额消耗 (用于下一次智能决策)
             val usedModelEnum = RateLimitHelper.AiModel.entries.find { it.apiName == targetModelId }
             if (usedModelEnum != null) {
                 RateLimitHelper.recordUsage(usedModelEnum, RateLimitHelper.estimateTokens(prompt))
             }
 
-            // 5. 解析结果并监控停止原因
+            // 5. 结果解析与安全拦截检查
             val candidates = response.candidates
             if (!candidates.isNullOrEmpty()) {
                 val candidate = candidates[0]
-
-                // 打印调试日志：监控拦截原因或截断原因
                 println("GoogleAI StopReason: ${candidate.finishReason}")
 
                 val text = candidate.content?.parts?.get(0)?.text

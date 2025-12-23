@@ -10,13 +10,15 @@ import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
 import com.example.bilidownloader.ui.viewmodel.MainViewModel
 
 /**
- * ViewModel 工厂
- * 负责把 Repository 和 UseCase 注入到 ViewModel 中
+ * ViewModel 工厂配置.
+ *
+ * 负责在 ViewModel 创建时注入所需的 Repository 和 UseCase。
+ * 替代了 Hilt/Dagger 的自动注入功能，适用于手动 DI 架构。
  */
 object AppViewModelProvider {
     val Factory = viewModelFactory {
 
-        // 1. 配置 MainViewModel
+        // MainViewModel 注入配置
         initializer {
             val container = bilidownloaderApplication().container
             MainViewModel(
@@ -30,16 +32,14 @@ object AppViewModelProvider {
             )
         }
 
-        // 2. 配置 AudioPickerViewModel
+        // AudioPickerViewModel 注入配置
         initializer {
             AudioPickerViewModel(
                 application = bilidownloaderApplication(),
             )
         }
 
-        // =========================================================
-        // 3. 【修改】注册 AiCommentViewModel
-        // =========================================================
+        // AiCommentViewModel 注入配置
         initializer {
             val container = bilidownloaderApplication().container
             AiCommentViewModel(
@@ -49,7 +49,6 @@ object AppViewModelProvider {
                 postCommentUseCase = container.postCommentUseCase,
                 getRecommendedVideosUseCase = container.getRecommendedVideosUseCase,
                 recommendRepository = container.recommendRepository,
-                // [新增] 注入风格仓库，实现自定义风格的持久化
                 styleRepository = container.styleRepository
             )
         }
@@ -57,7 +56,7 @@ object AppViewModelProvider {
 }
 
 /**
- * 扩展函数：方便从 CreationExtras 中获取 MyApplication 实例
+ * 扩展函数：便捷获取 Application 实例.
  */
 fun CreationExtras.bilidownloaderApplication(): MyApplication =
     (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MyApplication)

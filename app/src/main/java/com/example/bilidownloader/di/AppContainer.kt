@@ -4,17 +4,11 @@ import android.content.Context
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.database.AppDatabase
 import com.example.bilidownloader.data.repository.*
-import com.example.bilidownloader.domain.*
-import com.example.bilidownloader.domain.usecase.AnalyzeVideoUseCase
-import com.example.bilidownloader.domain.usecase.DownloadVideoUseCase
-import com.example.bilidownloader.domain.usecase.GenerateCommentUseCase
-import com.example.bilidownloader.domain.usecase.PostCommentUseCase
-import com.example.bilidownloader.domain.usecase.GetRecommendedVideosUseCase
-import com.example.bilidownloader.domain.usecase.GetSubtitleUseCase
-import com.example.bilidownloader.domain.usecase.PrepareTranscribeUseCase
+import com.example.bilidownloader.domain.usecase.*
 
 /**
- * 依赖注入容器接口
+ * 依赖注入容器接口.
+ * 定义应用中所有 Repository 和 UseCase 的单例获取方式.
  */
 interface AppContainer {
     // Repositories
@@ -26,9 +20,9 @@ interface AppContainer {
     val commentRepository: CommentRepository
     val llmRepository: LlmRepository
     val recommendRepository: RecommendRepository
-    val styleRepository: StyleRepository // [新增] 自定义风格仓库
+    val styleRepository: StyleRepository
 
-    // UseCases
+    // UseCases (业务逻辑单元)
     val analyzeVideoUseCase: AnalyzeVideoUseCase
     val downloadVideoUseCase: DownloadVideoUseCase
     val getSubtitleUseCase: GetSubtitleUseCase
@@ -39,26 +33,22 @@ interface AppContainer {
 }
 
 /**
- * 容器的具体实现
+ * 手动依赖注入容器的具体实现.
+ * 使用 `lazy` 委托实现懒加载单例模式，仅在首次使用时初始化对象。
  */
 class DefaultAppContainer(private val context: Context) : AppContainer {
 
-    // 1. 数据库实例
     private val database by lazy {
         AppDatabase.getDatabase(context)
     }
 
-    // 2. API Service
     private val biliApiService = NetworkModule.biliService
 
-    // 3. 数据库 DAO
     private val commentedVideoDao by lazy {
         database.commentedVideoDao()
     }
 
-    // =========================================================
-    // 4. Repository 初始化 (使用 lazy 延迟加载)
-    // =========================================================
+    // region Repositories
 
     override val historyRepository by lazy {
         HistoryRepository(database.historyDao())
@@ -92,17 +82,13 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         RecommendRepository(context, commentedVideoDao)
     }
 
-    /**
-     * [新增] 初始化自定义风格仓库
-     * 传入数据库中注册的 customStyleDao
-     */
     override val styleRepository by lazy {
         StyleRepository(database.customStyleDao())
     }
 
-    // =========================================================
-    // 5. UseCase 初始化
-    // =========================================================
+    // endregion
+
+    // region UseCases
 
     override val analyzeVideoUseCase by lazy {
         AnalyzeVideoUseCase(historyRepository)
@@ -135,4 +121,6 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
             biliApiService
         )
     }
+
+    // endregion
 }

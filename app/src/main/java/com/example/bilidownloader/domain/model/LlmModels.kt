@@ -1,7 +1,7 @@
 package com.example.bilidownloader.domain.model
 
 /**
- * AI 厂商枚举
+ * AI 厂商类型枚举.
  */
 enum class AiProvider(val label: String) {
     GOOGLE("Google Gemini"),
@@ -11,23 +11,21 @@ enum class AiProvider(val label: String) {
 }
 
 /**
- * 模型定义
- * @param id API 调用时使用的模型 ID (如 "gemini-3-flash", "deepseek-chat")
- * @param name UI 显示的名称
- * @param provider 所属厂商
- * @param maxTokenContext 上下文窗口限制 (用于后续截断判断)
- * @param isSmartMode 是否是本地的“智能托管模式”
+ * 领域模型：AI 模型配置.
+ *
+ * @property id API 调用时使用的模型标识符 (如 "gemini-2.5-flash").
+ * @property maxTokenContext 上下文窗口限制，用于判断是否需要截断输入.
+ * @property isSmartMode 是否开启智能托管模式 (自动切换模型以节省配额).
  */
 data class AiModelConfig(
     val id: String,
     val name: String,
     val provider: AiProvider,
     val maxTokenContext: Int,
-    val isSmartMode: Boolean = false // 特殊标记：如果为 true，代表交给 RateLimitHelper 自动决策
+    val isSmartMode: Boolean = false
 ) {
-    // 预定义支持的模型列表
     companion object {
-        // --- 特殊选项 ---
+        // --- 智能选项 ---
         val SMART_AUTO = AiModelConfig("auto", "✨ 智能托管 (自动切换)", AiProvider.GOOGLE, 128000, true)
 
         // --- Google Models ---
@@ -35,15 +33,15 @@ data class AiModelConfig(
         val GEMINI_FLASH_25 = AiModelConfig("gemini-2.5-flash", "Gemini 2.5 Flash", AiProvider.GOOGLE, 1000000)
         val GEMINI_LITE_25 = AiModelConfig("gemini-2.5-flash-lite", "Gemini 2.5 Lite", AiProvider.GOOGLE, 1000000)
 
-        // --- [新增] Gemini 3 系列 ---
+        // --- Gemini 3 Series ---
         val GEMINI3_FLASH = AiModelConfig("gemini-3-flash", "Gemini 3 Flash", AiProvider.GOOGLE, 1000000)
         val GEMINI3_PRO = AiModelConfig("gemini-3-pro", "Gemini 3 Pro", AiProvider.GOOGLE, 1000000)
 
-        // --- DeepSeek 模型 ---
+        // --- DeepSeek Models ---
         val DEEPSEEK_CHAT = AiModelConfig("deepseek-chat", "DeepSeek (Chat)", AiProvider.DEEPSEEK, 128000)
         val DEEPSEEK_REASONER = AiModelConfig("deepseek-reasoner", "DeepSeek (Reasoner)", AiProvider.DEEPSEEK, 128000)
 
-        // 获取所有可用选项
+        /** 获取当前支持的所有模型配置列表 */
         fun getAllModels(): List<AiModelConfig> {
             return listOf(
                 SMART_AUTO,
