@@ -15,10 +15,10 @@ import com.example.bilidownloader.core.model.ConclusionData
 import com.example.bilidownloader.core.model.VideoDetail
 import com.example.bilidownloader.data.repository.DownloadSession
 import com.example.bilidownloader.data.repository.HistoryRepository
+import com.example.bilidownloader.data.repository.SubtitleRepository
 import com.example.bilidownloader.features.login.AuthRepository
 import com.example.bilidownloader.domain.usecase.AnalyzeVideoUseCase
 import com.example.bilidownloader.domain.usecase.DownloadVideoUseCase
-import com.example.bilidownloader.domain.usecase.GetSubtitleUseCase
 import com.example.bilidownloader.domain.usecase.PrepareTranscribeUseCase
 import com.example.bilidownloader.service.DownloadService
 import com.example.bilidownloader.ui.state.FormatOption
@@ -47,7 +47,7 @@ class MainViewModel(
     private val analyzeVideoUseCase: AnalyzeVideoUseCase,
     private val downloadVideoUseCase: DownloadVideoUseCase,
     private val prepareTranscribeUseCase: PrepareTranscribeUseCase,
-    private val getSubtitleUseCase: GetSubtitleUseCase
+    private val subtitleRepository: SubtitleRepository
 ) : AndroidViewModel(application) {
 
     // ========================================================================
@@ -324,10 +324,11 @@ class MainViewModel(
         _state.value = currentState.copy(isSubtitleLoading = true)
 
         viewModelScope.launch {
-            val result = getSubtitleUseCase(
+            // 调用 Repository 代替 UseCase
+            val result = subtitleRepository.getSubtitleWithSign(
                 bvid = currentBvid,
                 cid = currentCid,
-                upMid = currentDetail?.owner?.mid
+                upMid = currentDetail?.owner?.mid ?: 0L
             )
 
             val safeState = _state.value

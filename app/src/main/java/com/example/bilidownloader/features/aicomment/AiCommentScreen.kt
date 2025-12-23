@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.screen
+package com.example.bilidownloader.features.aicomment
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -34,8 +34,6 @@ import coil.compose.AsyncImage
 import com.example.bilidownloader.di.AppViewModelProvider
 import com.example.bilidownloader.domain.model.AiModelConfig
 import com.example.bilidownloader.domain.model.CommentStyle
-import com.example.bilidownloader.ui.viewmodel.AiCommentLoadingState
-import com.example.bilidownloader.ui.viewmodel.AiCommentViewModel
 
 /**
  * AI 评论助手主屏幕.

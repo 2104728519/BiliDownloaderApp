@@ -5,12 +5,15 @@ import com.example.bilidownloader.core.database.AppDatabase
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.data.repository.*
 import com.example.bilidownloader.domain.usecase.*
-import com.example.bilidownloader.features.login.AuthRepository // 新引用
+import com.example.bilidownloader.features.login.AuthRepository
+import com.example.bilidownloader.features.aicomment.CommentRepository // 新引用
+import com.example.bilidownloader.features.aicomment.LlmRepository // 新引用
+import com.example.bilidownloader.features.aicomment.StyleRepository // 新引用
 
 interface AppContainer {
     // Repositories
     val historyRepository: HistoryRepository
-    val authRepository: AuthRepository // 重命名
+    val authRepository: AuthRepository
     val downloadRepository: DownloadRepository
     val subtitleRepository: SubtitleRepository
     val mediaRepository: MediaRepository
@@ -19,14 +22,11 @@ interface AppContainer {
     val recommendRepository: RecommendRepository
     val styleRepository: StyleRepository
 
-    // UseCases
+    // UseCases (仅保留尚未重构的)
     val analyzeVideoUseCase: AnalyzeVideoUseCase
     val downloadVideoUseCase: DownloadVideoUseCase
-    val getSubtitleUseCase: GetSubtitleUseCase
     val prepareTranscribeUseCase: PrepareTranscribeUseCase
-    val generateCommentUseCase: GenerateCommentUseCase
-    val postCommentUseCase: PostCommentUseCase
-    val getRecommendedVideosUseCase: GetRecommendedVideosUseCase
+    // 已删除: getSubtitleUseCase, generateCommentUseCase, postCommentUseCase, getRecommendedVideosUseCase
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -47,7 +47,6 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         HistoryRepository(database.historyDao())
     }
 
-    // 更新 AuthRepository 的实例化
     override val authRepository by lazy {
         AuthRepository(context, database.userDao())
     }
@@ -92,29 +91,10 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         DownloadVideoUseCase(context, downloadRepository)
     }
 
-    override val getSubtitleUseCase by lazy {
-        GetSubtitleUseCase(subtitleRepository, biliApiService)
-    }
-
     override val prepareTranscribeUseCase by lazy {
         PrepareTranscribeUseCase(context, downloadRepository)
     }
 
-    override val generateCommentUseCase by lazy {
-        GenerateCommentUseCase(llmRepository)
-    }
-
-    override val postCommentUseCase by lazy {
-        PostCommentUseCase(commentRepository)
-    }
-
-    override val getRecommendedVideosUseCase by lazy {
-        GetRecommendedVideosUseCase(
-            recommendRepository,
-            subtitleRepository,
-            biliApiService
-        )
-    }
 
     // endregion
 }

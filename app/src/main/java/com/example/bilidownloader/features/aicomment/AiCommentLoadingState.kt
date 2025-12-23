@@ -1,4 +1,4 @@
-package com.example.bilidownloader.ui.viewmodel
+package com.example.bilidownloader.features.aicomment
 
 /**
  * AI 评论助手加载状态枚举.

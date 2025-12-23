@@ -1,4 +1,4 @@
-package com.example.bilidownloader.data.repository
+package com.example.bilidownloader.features.aicomment
 
 import com.example.bilidownloader.core.database.CustomStyleDao
 import com.example.bilidownloader.core.database.CustomStyleEntity

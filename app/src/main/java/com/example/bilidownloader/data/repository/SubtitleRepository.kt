@@ -2,37 +2,63 @@ package com.example.bilidownloader.data.repository
 
 import android.util.Log
 import com.example.bilidownloader.core.common.Resource
-import com.example.bilidownloader.core.model.ConclusionData
-import com.example.bilidownloader.core.model.ModelResult
-import com.example.bilidownloader.core.model.PartSubtitleItem
-import com.example.bilidownloader.core.model.RawSubtitleJson
-import com.example.bilidownloader.core.model.SubtitleContainer
 import com.example.bilidownloader.core.network.api.BiliApiService
+import com.example.bilidownloader.core.model.*
 import com.example.bilidownloader.core.util.BiliSigner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.TreeMap
 
-/**
- * 字幕/摘要仓库.
- *
- * 实现了核心的“双重兜底策略”：
- * 1. **Plan A (AI 摘要)**: 优先尝试获取 B 站生成的 AI 总结和 AI 增强字幕。
- * 2. **Plan B (播放器 CC 字幕)**: 若 Plan A 失败（如视频无 AI 摘要），自动降级为解析播放器接口，
- *    获取传统的 CC 字幕文件，并将其转换为统一的数据格式。
- */
 class SubtitleRepository(
     private val apiService: BiliApiService
 ) {
-    suspend fun getSubtitle(
+
+    /**
+     * 获取字幕 (包含 WBI 签名逻辑).
+     * 原 GetSubtitleUseCase 逻辑已合并至此.
+     */
+    suspend fun getSubtitleWithSign(
+        bvid: String,
+        cid: Long,
+        upMid: Long?
+    ): Resource<ConclusionData> = withContext(Dispatchers.IO) {
+        try {
+            // 1. 同步获取 WBI 密钥
+            val navResponse = apiService.getNavInfo().execute()
+            val navData = navResponse.body()?.data
+                ?: return@withContext Resource.Error("无法获取 WBI 密钥")
+
+            val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
+            val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
+            val mixinKey = BiliSigner.getMixinKey(imgKey, subKey)
+
+            // 2. 参数签名
+            val params = TreeMap<String, Any>()
+            params["bvid"] = bvid
+            params["cid"] = cid
+            if (upMid != null) params["up_mid"] = upMid
+
+            val signedQueryString = BiliSigner.signParams(params, mixinKey)
+            val wts = params["wts"] as Long
+            val wRid = signedQueryString.substringAfter("w_rid=")
+
+            // 3. 执行请求 (Plan A + Plan B)
+            return@withContext getSubtitleInternal(bvid, cid, upMid, wts, wRid)
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Resource.Error("字幕解析异常: ${e.message}")
+        }
+    }
+
+    private suspend fun getSubtitleInternal(
         bvid: String,
         cid: Long,
         upMid: Long?,
         wts: Long,
         wRid: String
-    ): Resource<ConclusionData> = withContext(Dispatchers.IO) {
-
-        // --- Plan A: 尝试 AI 总结接口 ---
+    ): Resource<ConclusionData> {
+        // --- Plan A: AI 总结 ---
         try {
             val fakeUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
             val fakeReferer = "https://www.bilibili.com/video/$bvid"
@@ -50,21 +76,19 @@ class SubtitleRepository(
             if (response.code == 0) {
                 val result = response.data?.modelResult
                 if (result != null && (!result.summary.isNullOrEmpty() || !result.subtitle.isNullOrEmpty())) {
-                    return@withContext Resource.Success(response.data)
+                    return Resource.Success(response.data)
                 }
             }
-            Log.w("SubtitleRepo", "Plan A (AI总结) 失败或为空，尝试 Plan B (播放器字幕)...")
         } catch (e: Exception) {
-            Log.w("SubtitleRepo", "Plan A 异常: ${e.message}")
+            Log.w("SubtitleRepo", "Plan A 失败: ${e.message}")
         }
 
-        // --- Plan B: 播放器字幕兜底 ---
-        return@withContext fetchPlayerSubtitle(bvid, cid)
+        // --- Plan B: 播放器字幕 ---
+        return fetchPlayerSubtitle(bvid, cid)
     }
 
-    /**
-     * 执行 Plan B: 从播放器配置 V2 接口提取 CC 字幕.
-     */
+    // ... (fetchPlayerSubtitle 和 convertToConclusionData 方法保持不变，请保留原有的代码) ...
+    // 为节省篇幅，这里省略 fetchPlayerSubtitle 的具体实现，请确保不要删除它
     private suspend fun fetchPlayerSubtitle(bvid: String, cid: Long): Resource<ConclusionData> {
         try {
             // 1. 获取 Aid (PlayerV2 接口只接受 aid)
@@ -112,7 +136,7 @@ class SubtitleRepository(
         }
     }
 
-    private fun convertToConclusionData(raw: RawSubtitleJson, lanDoc: String): ConclusionData {
+    private fun convertToConclusionData(raw: com.example.bilidownloader.core.model.RawSubtitleJson, lanDoc: String): ConclusionData {
         val partSubtitles = raw.body?.map {
             PartSubtitleItem(
                 startTimestamp = it.from.toLong(),

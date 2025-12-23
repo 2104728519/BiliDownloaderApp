@@ -5,8 +5,8 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.bilidownloader.MyApplication
-import com.example.bilidownloader.features.login.LoginViewModel // 新引用
-import com.example.bilidownloader.ui.viewmodel.AiCommentViewModel
+import com.example.bilidownloader.features.aicomment.AiCommentViewModel // 新引用
+import com.example.bilidownloader.features.login.LoginViewModel
 import com.example.bilidownloader.ui.viewmodel.AudioPickerViewModel
 import com.example.bilidownloader.ui.viewmodel.MainViewModel
 
@@ -19,11 +19,11 @@ object AppViewModelProvider {
             MainViewModel(
                 application = bilidownloaderApplication(),
                 historyRepository = container.historyRepository,
-                authRepository = container.authRepository, // 更新引用
+                authRepository = container.authRepository,
                 analyzeVideoUseCase = container.analyzeVideoUseCase,
                 downloadVideoUseCase = container.downloadVideoUseCase,
                 prepareTranscribeUseCase = container.prepareTranscribeUseCase,
-                getSubtitleUseCase = container.getSubtitleUseCase
+                subtitleRepository = container.subtitleRepository // 替换 UseCase
             )
         }
 
@@ -32,7 +32,7 @@ object AppViewModelProvider {
             val container = bilidownloaderApplication().container
             LoginViewModel(
                 application = bilidownloaderApplication(),
-                authRepository = container.authRepository // 注入仓库
+                authRepository = container.authRepository
             )
         }
 
@@ -48,12 +48,11 @@ object AppViewModelProvider {
             val container = bilidownloaderApplication().container
             AiCommentViewModel(
                 analyzeVideoUseCase = container.analyzeVideoUseCase,
-                getSubtitleUseCase = container.getSubtitleUseCase,
-                generateCommentUseCase = container.generateCommentUseCase,
-                postCommentUseCase = container.postCommentUseCase,
-                getRecommendedVideosUseCase = container.getRecommendedVideosUseCase,
-                recommendRepository = container.recommendRepository,
-                styleRepository = container.styleRepository
+                subtitleRepository = container.subtitleRepository, // 注入 Repo
+                llmRepository = container.llmRepository,           // 注入 Repo
+                commentRepository = container.commentRepository,   // 注入 Repo
+                recommendRepository = container.recommendRepository, // 注入 Repo
+                styleRepository = container.styleRepository        // 注入 Repo
             )
         }
     }

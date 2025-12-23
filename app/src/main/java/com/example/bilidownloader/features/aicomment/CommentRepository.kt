@@ -1,4 +1,4 @@
-package com.example.bilidownloader.data.repository
+package com.example.bilidownloader.features.aicomment
 
 import android.content.Context
 import com.example.bilidownloader.core.common.Resource
@@ -7,34 +7,34 @@ import com.example.bilidownloader.core.network.NetworkModule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * 评论功能仓库.
- *
- * 负责处理 B 站评论区的交互逻辑。核心职责是自动提取 CSRF Token (bili_jct)
- * 并将其注入到发送请求中，防止因 CSRF 校验失败导致无法评论。
- */
 class CommentRepository(private val context: Context) {
 
     private val apiService = NetworkModule.biliService
 
     suspend fun postComment(oid: Long, message: String): Resource<String> = withContext(Dispatchers.IO) {
+        // 1. 校验逻辑 (原 UseCase 逻辑)
+        if (message.isBlank()) {
+            return@withContext Resource.Error("评论内容不能为空")
+        }
+        if (message.length > 1000) {
+            return@withContext Resource.Error("评论字数超出限制 (最大1000字)")
+        }
+
         try {
-            // 1. 提取 CSRF Token
-            // B 站所有写操作 (POST) 均校验 Header Cookie 中的 bili_jct 字段
+            // 2. 提取 CSRF Token
             val csrfToken = CookieManager.getCookieValue(context, "bili_jct")
 
             if (csrfToken.isNullOrEmpty()) {
                 return@withContext Resource.Error("未登录或无法获取 CSRF Token，请先在设置页登录")
             }
 
-            // 2. 执行请求
+            // 3. 执行请求
             val response = apiService.addReply(
                 oid = oid,
                 message = message,
                 csrf = csrfToken
             )
 
-            // 3. 结果映射
             if (response.code == 0) {
                 Resource.Success("发送成功")
             } else {
