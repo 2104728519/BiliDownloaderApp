@@ -28,7 +28,7 @@ import java.net.URLDecoder
  */
 class TranscriptionViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val API_KEY = "Bearer sk-xxxxxxxxxxxxxxxxxxxx" // 实际使用请配置在 local.properties
+    private val API_KEY = "Bearer ${com.example.bilidownloader.BuildConfig.AL_API_KEY}"
 
     private val _uiState = MutableStateFlow<TransState>(TransState.Idle)
     val uiState = _uiState.asStateFlow()
