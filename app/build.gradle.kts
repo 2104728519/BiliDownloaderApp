@@ -23,8 +23,8 @@ android {
         applicationId = "com.example.bilidownloader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 15
-        versionName = "2.4.0"
+        versionCode = 16
+        versionName = "2.4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -76,9 +76,8 @@ android {
         }
     }
 
-    // ============================================================
-    // 【修复版】自定义 APK 文件名逻辑
-    // ============================================================
+    // 自定义 APK 文件名逻辑
+
     applicationVariants.all {
         val variant = this
         variant.outputs.all {
@@ -114,8 +113,9 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
-
-    implementation("com.github.microshow:RxFFmpeg:4.9.0")
+    //ffmpeg
+    implementation(files("libs/ffmpeg-kit-full-gpl-6.0-2.LTS.aar"))
+    implementation("com.arthenica:smart-exception-java:0.2.1")
     implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Room 数据库

@@ -113,10 +113,9 @@ class HomeRepository(
                     180L // 默认 3分钟
                 }
 
-                // A. 视频流处理 (过滤 AV1 编码，因其兼容性较差且转码慢)
+                // A. 视频流处理
                 playData.dash.video.forEach { media ->
-                    if (media.codecs?.startsWith("av01") == true) return@forEach
-
+                    // 核心修改：不再过滤 AV1 (av01) 编码，以支持更多画质选项
                     val qIndex = playData.accept_quality?.indexOf(media.id) ?: -1
                     val desc = if (qIndex >= 0 && qIndex < (playData.accept_description?.size ?: 0)) {
                         playData.accept_description?.get(qIndex) ?: "未知画质"
@@ -125,6 +124,7 @@ class HomeRepository(
                     val codecSimple = when {
                         media.codecs?.startsWith("avc") == true -> "AVC"
                         media.codecs?.startsWith("hev") == true -> "HEVC"
+                        media.codecs?.startsWith("av01") == true -> "AV1"
                         else -> "MP4"
                     }
 
@@ -322,7 +322,6 @@ class HomeRepository(
 
 /**
  * 视频解析结果数据类.
- * (原 Domain 层模型，现下沉至 Feature 层)
  */
 data class VideoAnalysisResult(
     val detail: VideoDetail,
