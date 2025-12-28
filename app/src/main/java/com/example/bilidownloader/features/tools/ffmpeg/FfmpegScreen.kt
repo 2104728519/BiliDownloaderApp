@@ -27,8 +27,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -44,6 +46,7 @@ import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.example.bilidownloader.di.AppViewModelProvider
+import com.example.bilidownloader.features.ffmpeg.LocalMedia
 
 /**
  * FFmpeg 万能终端界面.
@@ -134,10 +137,11 @@ fun FfmpegScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // 1. Input Slot (文件选择区)
+            // 1. Input Slot (文件选择区 - 传入 mediaInfo)
             FileSelectionCard(
                 fileName = uiState.inputFileName,
                 fileSize = uiState.inputFileSize,
+                mediaInfo = uiState.mediaInfo,
                 enabled = !isRunning,
                 onSelectClick = { checkAndOpenPicker() }
             )
@@ -263,7 +267,6 @@ fun VideoGridItem(media: LocalMedia, onClick: () -> Unit) {
             .background(Color.DarkGray)
             .clickable(onClick = onClick)
     ) {
-        // [修改后的 AsyncImage]：支持视频帧解码
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(media.uri)
@@ -271,7 +274,7 @@ fun VideoGridItem(media: LocalMedia, onClick: () -> Unit) {
                 .decoderFactory { result, options, _ ->
                     VideoFrameDecoder(result.source, options)
                 }
-                // 截取第 1000 毫秒 (1秒) 的画面，防止第一帧是黑屏
+                // 截取第 1000 毫秒 (1秒) 的画面
                 .videoFrameMillis(1000)
                 .crossfade(true)
                 .build(),
@@ -321,44 +324,88 @@ private fun formatDuration(ms: Long): String {
 
 // --- 基础组件 ---
 
+/**
+ * 文件选择卡片：支持点击选择和点击复制 JSON 信息
+ */
 @Composable
 private fun FileSelectionCard(
     fileName: String,
     fileSize: String,
+    mediaInfo: String,
     enabled: Boolean,
     onSelectClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onSelectClick)
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
-                    .background(if (fileName.isEmpty()) Color.Gray else MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 左侧可点击区域：图标 + 文本
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(enabled = enabled, onClick = onSelectClick),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = if (fileName.isEmpty()) Icons.Default.Add else Icons.Default.VideoFile,
-                    contentDescription = null,
-                    tint = if (fileName.isEmpty()) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                if (fileName.isEmpty()) {
-                    Text("选择输入文件", style = MaterialTheme.typography.titleMedium)
-                    Text("点击从相册/媒体库选择", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                } else {
-                    Text(fileName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                    Text("大小: $fileSize", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (fileName.isEmpty()) Color.Gray else MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (fileName.isEmpty()) Icons.Default.Add else Icons.Default.VideoFile,
+                        contentDescription = null,
+                        tint = if (fileName.isEmpty()) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    if (fileName.isEmpty()) {
+                        Text("选择输入文件", style = MaterialTheme.typography.titleMedium)
+                        Text("支持视频/音频格式", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    } else {
+                        Text(fileName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                        Text("大小: $fileSize", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
-            Icon(Icons.Default.ChevronRight, null, tint = Color.Gray)
+
+            // 右侧功能按钮：复制详细信息
+            if (fileName.isNotEmpty()) {
+                IconButton(
+                    onClick = {
+                        if (mediaInfo.isNotBlank()) {
+                            clipboardManager.setText(AnnotatedString(mediaInfo))
+                            Toast.makeText(context, "详细参数已复制 (JSON)", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "正在分析文件信息...", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "复制详细信息",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            } else {
+                Icon(Icons.Default.ChevronRight, null, tint = Color.Gray)
+            }
         }
     }
 }
 
+/**
+ * 命令构建区域：包含参数输入和一键清空按钮
+ */
 @Composable
 private fun CommandBuilderArea(
     uiState: FfmpegUiState,
@@ -378,6 +425,8 @@ private fun CommandBuilderArea(
             fontFamily = FontFamily.Monospace,
             fontSize = 14.sp
         )
+
+        // 参数输入框
         OutlinedTextField(
             value = uiState.arguments,
             onValueChange = onArgsChange,
@@ -385,8 +434,22 @@ private fun CommandBuilderArea(
             textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 16.sp),
             placeholder = { Text("-c:v libx264 ...") },
             enabled = !isRunning,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            maxLines = 5,
+            // 尾部清空按钮
+            trailingIcon = {
+                if (uiState.arguments.isNotEmpty() && !isRunning) {
+                    IconButton(onClick = { onArgsChange("") }) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "清空参数",
+                            tint = Color.Gray
+                        )
+                    }
+                }
+            }
         )
+
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("output_file", fontFamily = FontFamily.Monospace, color = Color.Gray, fontSize = 14.sp)
             OutlinedTextField(

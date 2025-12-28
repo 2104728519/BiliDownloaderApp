@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.webkit.MimeTypeMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -31,13 +32,18 @@ object StorageHelper {
 
     /**
      * 保存视频到系统相册.
+     * 自动识别 MIME 类型 (mp4, mkv, webm 等).
      */
     suspend fun saveVideoToGallery(context: Context, sourceFile: File, fileName: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
+                // 自动获取 MIME 类型
+                val extension = fileName.substringAfterLast('.', "")
+                val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase()) ?: "video/mp4"
+
                 val values = ContentValues().apply {
                     put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
-                    put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Video.Media.MIME_TYPE, mimeType)
                     // Android Q+: 使用 RELATIVE_PATH 并设置 IS_PENDING 状态以独占写入
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/BiliDownloader")
@@ -66,6 +72,49 @@ object StorageHelper {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     values.clear()
                     values.put(MediaStore.Video.Media.IS_PENDING, 0)
+                    resolver.update(itemUri, values, null, null)
+                }
+                return@withContext true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                return@withContext false
+            }
+        }
+    }
+
+    /**
+     * 保存 GIF/图片到系统相册.
+     */
+    suspend fun saveGifToGallery(context: Context, sourceFile: File, fileName: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/gif")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/BiliDownloader")
+                        put(MediaStore.Images.Media.IS_PENDING, 1)
+                    }
+                }
+
+                val resolver = context.contentResolver
+                val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                } else {
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                }
+
+                val itemUri = resolver.insert(collection, values) ?: return@withContext false
+
+                FileInputStream(sourceFile).use { inputStream ->
+                    resolver.openOutputStream(itemUri)?.use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
                     resolver.update(itemUri, values, null, null)
                 }
                 return@withContext true

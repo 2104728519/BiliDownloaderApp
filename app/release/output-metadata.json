@@ -11,9 +11,9 @@
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 15,
-      "versionName": "2.4.0",
-      "outputFile": "bilic_2.4.0.apk"
+      "versionCode": 17,
+      "versionName": "2.4.2",
+      "outputFile": "bilic_2.4.2.apk"
     }
   ],
   "elementType": "File",
@@ -22,14 +22,14 @@
       "minApi": 28,
       "maxApi": 30,
       "baselineProfiles": [
-        "baselineProfiles/1/bilic_2.4.0.dm"
+        "baselineProfiles/1/bilic_2.4.2.dm"
       ]
     },
     {
       "minApi": 31,
       "maxApi": 2147483647,
       "baselineProfiles": [
-        "baselineProfiles/0/bilic_2.4.0.dm"
+        "baselineProfiles/0/bilic_2.4.2.dm"
       ]
     }
   ],
