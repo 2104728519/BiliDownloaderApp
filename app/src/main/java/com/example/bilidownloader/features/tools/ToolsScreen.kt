@@ -5,10 +5,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
@@ -20,7 +22,8 @@ import androidx.compose.ui.unit.dp
 fun ToolsScreen(
     onNavigateToAudioCrop: () -> Unit,
     onNavigateToTranscription: () -> Unit,
-    onNavigateToAiComment: () -> Unit
+    onNavigateToAiComment: () -> Unit,
+    onNavigateToFfmpeg: () -> Unit // [新增] FFmpeg 导航回调
 ) {
     Scaffold(
         topBar = {
@@ -41,77 +44,124 @@ fun ToolsScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // 1. 音频裁剪
-            ElevatedCard(
-                onClick = onNavigateToAudioCrop,
-                modifier = Modifier.fillMaxWidth().height(100.dp),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Build, null, modifier = Modifier.size(40.dp))
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text("音频裁剪", style = MaterialTheme.typography.titleMedium)
-                        Text("裁剪本地音频文件，支持导出 MP3", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            ToolCard(
+                title = "音频裁剪",
+                description = "裁剪本地音频文件，支持导出 MP3",
+                icon = Icons.Default.Build,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                onClick = onNavigateToAudioCrop
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // 2. 音频转写
-            ElevatedCard(
-                onClick = onNavigateToTranscription,
-                modifier = Modifier.fillMaxWidth().height(100.dp),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Description, null, modifier = Modifier.size(40.dp))
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text("音频转文字", style = MaterialTheme.typography.titleMedium)
-                        Text("调用阿里云 AI 模型进行语音识别", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            ToolCard(
+                title = "音频转文字",
+                description = "调用阿里云 AI 模型进行语音识别",
+                icon = Icons.Default.Description,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                onClick = onNavigateToTranscription
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // 3. AI 评论助手
+            ToolCard(
+                title = "AI 评论助手",
+                description = "基于视频字幕生成多种风格的评论",
+                icon = Icons.Default.AutoAwesome,
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                onClick = onNavigateToAiComment
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // [新增] 4. FFmpeg 万能终端 (极客风深色卡片)
             ElevatedCard(
-                onClick = onNavigateToAiComment,
-                modifier = Modifier.fillMaxWidth().height(100.dp),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                onClick = onNavigateToFfmpeg,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = Color(0xFF1E1E1E) // 深色背景
+                )
             ) {
                 Row(
-                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
+                        imageVector = Icons.Default.Terminal,
+                        contentDescription = "FFmpeg Terminal",
                         modifier = Modifier.size(40.dp),
-                        tint = MaterialTheme.colorScheme.onTertiaryContainer
+                        tint = Color(0xFF00FF00) // 荧光绿图标
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(
-                            text = "AI 评论助手",
+                            text = "FFmpeg 终端",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                            color = Color(0xFF00FF00)
                         )
                         Text(
-                            text = "基于视频字幕生成多种风格的评论",
+                            text = "执行自定义 FFmpeg 命令 (Raw Mode)",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
+                            color = Color.LightGray
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 通用工具卡片组件，提取公共样式以减少代码冗余
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ToolCard(
+    title: String,
+    description: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    containerColor: Color,
+    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+    onClick: () -> Unit
+) {
+    ElevatedCard(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(100.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = containerColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = contentColor
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = contentColor
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = contentColor.copy(alpha = 0.8f)
+                )
             }
         }
     }

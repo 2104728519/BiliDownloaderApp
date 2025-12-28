@@ -18,6 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.bilidownloader.core.util.StorageHelper
 import com.example.bilidownloader.features.aicomment.AiCommentScreen
+import com.example.bilidownloader.features.ffmpeg.FfmpegScreen
 import com.example.bilidownloader.features.home.HomeScreen
 import com.example.bilidownloader.features.login.LoginScreen
 import com.example.bilidownloader.features.tools.ToolsScreen
@@ -60,7 +61,8 @@ fun MainScreen() {
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Build, contentDescription = null) },
                     label = { Text("工具") },
-                    selected = currentRoute == "tools",
+                    selected = currentRoute?.startsWith("tools") == true ||
+                            currentRoute?.startsWith("ffmpeg_terminal") == true,
                     onClick = {
                         navController.navigate("tools") {
                             popUpTo(navController.graph.startDestinationId) { saveState = true }
@@ -77,7 +79,7 @@ fun MainScreen() {
             startDestination = "home",
             modifier = Modifier.padding(innerPadding)
         ) {
-            // region Home Navigation
+            // region --- Home 导航 ---
 
             composable("home") {
                 HomeScreen(
@@ -100,18 +102,39 @@ fun MainScreen() {
 
             // endregion
 
-            // region Tools Navigation
+            // region --- Tools 导航 ---
 
+            // 工具箱入口页
             composable("tools") {
                 ToolsScreen(
                     onNavigateToAudioCrop = { navController.navigate("audio_picker") },
                     onNavigateToTranscription = { navController.navigate("audio_picker_transcribe") },
-                    onNavigateToAiComment = { navController.navigate("ai_comment") }
+                    onNavigateToAiComment = { navController.navigate("ai_comment") },
+                    onNavigateToFfmpeg = { navController.navigate("ffmpeg_terminal") } // 导航至终端
                 )
             }
 
+            // AI 评论助手
             composable("ai_comment") {
                 AiCommentScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            // FFmpeg 万能终端
+            // 支持可选参数 args (由 preset_args 映射)，用于接收预设指令
+            composable(
+                route = "ffmpeg_terminal?args={args}",
+                arguments = listOf(
+                    navArgument("args") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
+            ) {
+                // ViewModel 会通过 SavedStateHandle 自动获取 key 为 "args" 的值
+                FfmpegScreen(
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -122,7 +145,6 @@ fun MainScreen() {
                 AudioPickerScreen(
                     onBack = { navController.popBackStack() },
                     onAudioSelected = { uri ->
-                        // 复制到缓存目录，确保文件有绝对路径
                         val tempName = "temp_crop_${System.currentTimeMillis()}.mp3"
                         val cacheFile = StorageHelper.copyUriToCache(context, uri, tempName)
                         if (cacheFile != null) {

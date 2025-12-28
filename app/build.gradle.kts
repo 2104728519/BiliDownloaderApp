@@ -117,7 +117,7 @@ dependencies {
     implementation(files("libs/ffmpeg-kit-full-gpl-6.0-2.LTS.aar"))
     implementation("com.arthenica:smart-exception-java:0.2.1")
     implementation("io.coil-kt:coil-compose:2.6.0")
-
+    implementation("io.coil-kt:coil-video:2.6.0")
     // Room 数据库
     val room_version = "2.6.1"
     implementation("androidx.room:room-runtime:$room_version")
