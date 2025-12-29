@@ -148,14 +148,18 @@ fun FfmpegScreen(
 
             Divider(thickness = 8.dp, color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
 
-            // 2. Command Builder (命令构建区)
+            // 2. Command Builder (命令构建区) - [修改] 传入新的 onExecute 逻辑
             CommandBuilderArea(
                 uiState = uiState,
                 onArgsChange = { viewModel.onArgumentsChanged(it) },
                 onExtChange = { viewModel.onExtensionChanged(it) },
                 onExecute = {
                     focusManager.clearFocus()
-                    viewModel.executeCommand()
+                    if (isRunning) {
+                        viewModel.stopCommand()
+                    } else {
+                        viewModel.executeCommand()
+                    }
                 },
                 isRunning = isRunning
             )
@@ -410,12 +414,7 @@ private fun CommandBuilderArea(
     isRunning: Boolean
 ) {
     Column(modifier = Modifier.padding(16.dp)) {
-        Text(
-            text = "COMMAND PREVIEW",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.Gray,
-            letterSpacing = 2.sp
-        )
+        Text("COMMAND PREVIEW", style = MaterialTheme.typography.labelSmall, color = Color.Gray, letterSpacing = 2.sp)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             buildAnnotatedString {
@@ -426,24 +425,15 @@ private fun CommandBuilderArea(
             fontSize = 14.sp
         )
 
-        // 参数输入框：添加了行数限制
         OutlinedTextField(
             value = uiState.arguments,
             onValueChange = onArgsChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            textStyle = androidx.compose.ui.text.TextStyle(
-                fontFamily = FontFamily.Monospace,
-                fontSize = 16.sp
-            ),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 16.sp),
             placeholder = { Text("-c:v libx264 ...") },
             enabled = !isRunning,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            // --- [核心修改点] ---
-            minLines = 1,
             maxLines = 5,
-            // ------------------
             trailingIcon = {
                 if (uiState.arguments.isNotEmpty() && !isRunning) {
                     IconButton(onClick = { onArgsChange("") }) {
@@ -462,33 +452,29 @@ private fun CommandBuilderArea(
             OutlinedTextField(
                 value = uiState.outputExtension,
                 onValueChange = onExtChange,
-                modifier = Modifier
-                    .width(100.dp)
-                    .padding(start = 8.dp),
-                textStyle = androidx.compose.ui.text.TextStyle(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 14.sp
-                ),
+                modifier = Modifier.width(100.dp).padding(start = 8.dp),
+                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
                 singleLine = true,
                 enabled = !isRunning,
                 label = { Text("后缀") }
             )
             Spacer(modifier = Modifier.weight(1f))
+
+            // [修改] 运行/停止 按钮逻辑
             Button(
                 onClick = onExecute,
-                enabled = !isRunning && uiState.inputFileUri != null,
+                enabled = uiState.inputFileUri != null, // 只要选了文件就能点（为了停止）
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1E1E1E),
-                    contentColor = Color(0xFF00FF00)
+                    containerColor = if (isRunning) Color(0xFFB00020) else Color(0xFF1E1E1E), // 运行时红色
+                    contentColor = Color.White,
+                    disabledContainerColor = Color.Gray
                 ),
                 shape = RoundedCornerShape(4.dp)
             ) {
                 if (isRunning) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = Color(0xFF00FF00),
-                        strokeWidth = 2.dp
-                    )
+                    Icon(Icons.Default.Stop, null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("STOP")
                 } else {
                     Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
@@ -502,8 +488,8 @@ private fun CommandBuilderArea(
 @Composable
 private fun TerminalConsole(taskState: FfmpegTaskState, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
-    val clipboardManager = LocalClipboardManager.current // 剪贴板管理器
-    val context = LocalContext.current // 用于 Toast
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
 
     val logs = when (taskState) {
         is FfmpegTaskState.Running -> taskState.logs
@@ -512,48 +498,28 @@ private fun TerminalConsole(taskState: FfmpegTaskState, modifier: Modifier = Mod
         else -> emptyList()
     }
 
-    // 自动滚动到底部
     LaunchedEffect(logs.size) {
-        if (logs.isNotEmpty()) {
-            listState.animateScrollToItem(logs.size - 1)
-        }
+        if (logs.isNotEmpty()) listState.animateScrollToItem(logs.size - 1)
     }
 
     Column(modifier = modifier) {
-        // 进度条
         if (taskState is FfmpegTaskState.Running) {
             LinearProgressIndicator(
                 progress = { if (taskState.progress < 0) 0f else taskState.progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp),
+                modifier = Modifier.fillMaxWidth().height(2.dp),
                 color = Color(0xFF00FF00),
                 trackColor = Color.Black
             )
         }
 
-        // 日志区域容器
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF1E1E1E))
-                .padding(8.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(8.dp)) {
             if (logs.isEmpty()) {
-                Text(
-                    "> Waiting for command...",
-                    color = Color.Gray,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    modifier = Modifier.align(Alignment.Center)
-                )
+                Text("> Waiting for command...", color = Color.Gray, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.align(Alignment.Center))
             } else {
-                // [修改 1] 使用 SelectionContainer 包裹，支持长按选择文本
                 SelectionContainer {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        // 底部留白，防止最后一行被复制按钮遮挡
                         contentPadding = PaddingValues(bottom = 48.dp)
                     ) {
                         items(logs) { log ->
@@ -573,7 +539,6 @@ private fun TerminalConsole(taskState: FfmpegTaskState, modifier: Modifier = Mod
                     }
                 }
 
-                //  右上角悬浮复制按钮
                 IconButton(
                     onClick = {
                         val fullLog = logs.joinToString("\n")

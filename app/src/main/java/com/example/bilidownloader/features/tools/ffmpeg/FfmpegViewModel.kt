@@ -2,7 +2,9 @@ package com.example.bilidownloader.features.ffmpeg
 
 import android.app.Application
 import android.content.ContentUris
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
@@ -31,7 +33,7 @@ data class LocalMedia(
 class FfmpegViewModel(
     application: Application,
     private val repository: FfmpegRepository,
-    savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(FfmpegUiState())
@@ -46,6 +48,7 @@ class FfmpegViewModel(
     private var cachedInputPath: String? = null
 
     init {
+        // --- 1. 处理从外部传入的预设参数 ---
         val presetArgs = savedStateHandle.get<String>("preset_args")
         if (!presetArgs.isNullOrBlank()) {
             try {
@@ -55,9 +58,26 @@ class FfmpegViewModel(
                 e.printStackTrace()
             }
         }
+
+        // --- 2. 监听全局 Session 状态 ---
+        viewModelScope.launch {
+            FfmpegSession.taskState.collect { taskState ->
+                // 将全局状态同步到 UI State
+                _uiState.update { it.copy(taskState = taskState) }
+
+                // 如果任务成功，自动触发保存逻辑
+                if (taskState is FfmpegTaskState.Success) {
+                    saveToGallery(File(taskState.outputUri))
+                }
+            }
+        }
     }
 
     // region --- 媒体库扫描逻辑 ---
+
+    /**
+     * 加载本地媒体文件（视频或音频）
+     */
     fun loadLocalMedia(isVideo: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             _isMediaLoading.value = true
@@ -65,7 +85,7 @@ class FfmpegViewModel(
             val list = mutableListOf<LocalMedia>()
 
             try {
-                val collection = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     if (isVideo) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
                     else MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
                 } else {
@@ -117,11 +137,15 @@ class FfmpegViewModel(
     }
     // endregion
 
+    /**
+     * 当用户从系统选择器选择文件后的处理逻辑
+     */
     fun onFileSelected(uri: Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             val context = getApplication<Application>()
             var name = "unknown_file"
             var sizeStr = "0 B"
+
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -136,6 +160,7 @@ class FfmpegViewModel(
             val mimeType = context.contentResolver.getType(uri)
             val defaultExt = if (mimeType?.startsWith("audio") == true) ".mp3" else ".mp4"
 
+            // 将原始 URI 拷贝到私有缓存目录，方便 FFmpeg 直接通过 File Path 访问
             val cacheFile = StorageHelper.copyUriToCache(context, uri, "ffmpeg_input_temp")
 
             if (cacheFile != null) {
@@ -169,6 +194,10 @@ class FfmpegViewModel(
         _uiState.update { it.copy(outputExtension = validExt) }
     }
 
+    /**
+     * 执行命令
+     * 包含参数清洗逻辑，并启动前台服务执行任务
+     */
     fun executeCommand() {
         val currentState = _uiState.value
         val inputPath = cachedInputPath
@@ -178,42 +207,60 @@ class FfmpegViewModel(
             return
         }
 
-        viewModelScope.launch {
-            repository.executeCommand(
-                inputUri = "file://$inputPath",
-                args = currentState.arguments,
-                outputExtension = currentState.outputExtension
-            ).collect { taskState ->
-                _uiState.update { it.copy(taskState = taskState) }
+        // --- [核心逻辑] 清洗参数，防止非法换行或多余空格导致命令解析失败 ---
+        val rawArgs = currentState.arguments
+        // 1. 将所有空白字符（换行、回车、制表符、多余空格）替换为单个空格
+        // 2. 去掉首尾空格
+        val cleanArgs = rawArgs.replace(Regex("\\s+"), " ").trim()
 
-                if (taskState is FfmpegTaskState.Success) {
-                    saveToGallery(File(taskState.outputUri))
-                }
-            }
+        // 如果清洗后参数发生变化，更新 UI 显示
+        if (cleanArgs != rawArgs) {
+            _uiState.update { it.copy(arguments = cleanArgs) }
+        }
+
+        // 启动后台服务执行 FFmpeg 任务
+        val context = getApplication<Application>()
+        val intent = Intent(context, FfmpegService::class.java).apply {
+            action = FfmpegService.ACTION_START
+            putExtra(FfmpegService.EXTRA_INPUT_URI, "file://$inputPath")
+            putExtra(FfmpegService.EXTRA_ARGS, cleanArgs) // 使用清洗后的参数
+            putExtra(FfmpegService.EXTRA_EXT, currentState.outputExtension)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
         }
     }
 
     /**
-     * [重写] 自动保存结果到系统媒体库，支持智能分类
+     * 停止正在执行的任务
+     */
+    fun stopCommand() {
+        val context = getApplication<Application>()
+        val intent = Intent(context, FfmpegService::class.java).apply {
+            action = FfmpegService.ACTION_STOP
+        }
+        context.startService(intent)
+    }
+
+    /**
+     * 自动保存结果到系统媒体库
      */
     private suspend fun saveToGallery(file: File) {
         val context = getApplication<Application>()
         val fileName = "FFmpeg_${System.currentTimeMillis()}_${file.name}"
 
-        // 1. 获取后缀并转为小写，处理兼容性
         val ext = _uiState.value.outputExtension.lowercase()
 
-        // 2. 智能分类存储
         val success = when {
-            // 视频类：存入 Movies/BiliDownloader
             ext in listOf(".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".3gp") -> {
                 StorageHelper.saveVideoToGallery(context, file, fileName)
             }
-            // 图片/动图类：存入 Pictures/BiliDownloader
             ext in listOf(".gif", ".png", ".jpg", ".jpeg", ".webp") -> {
                 StorageHelper.saveGifToGallery(context, file, fileName)
             }
-            // 音频或其他：存入 Music/BiliDownloader
             else -> {
                 StorageHelper.saveAudioToMusic(context, file, fileName)
             }

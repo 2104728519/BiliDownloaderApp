@@ -1,8 +1,8 @@
-// 文件位置：features/ffmpeg/FfmpegRepository.kt
 package com.example.bilidownloader.features.ffmpeg
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.FFprobeKit
 import com.arthenica.ffmpegkit.ReturnCode
@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
-import org.json.JSONObject // 用于构建 AI 包装结构
+import org.json.JSONObject
 import java.io.File
 import java.net.URLDecoder
 
@@ -21,20 +21,114 @@ import java.net.URLDecoder
  */
 class FfmpegRepository(private val context: Context) {
 
-    /**
-     * [修改] 获取媒体信息，并封装 AI 提示词包装层
-     * * 将原始 FFprobe JSON 包装在带有 AI 指令的结构中，方便用户直接复制给 AI 分析。
-     */
+    private val TAG = "FfmpegRepo"
+
+    fun executeCommand(
+        inputUri: String,
+        args: String,
+        outputExtension: String
+    ): Flow<FfmpegTaskState> = callbackFlow {
+        var sessionId: Long? = null
+        val logs = mutableListOf<String>()
+        val startTime = System.currentTimeMillis()
+
+        var currentProgress = 0f
+
+        // 1. 准备路径
+        val tempInputPath = Uri.parse(inputUri).path?.let {
+            URLDecoder.decode(it, "UTF-8")
+        } ?: throw IllegalArgumentException("无效的输入路径")
+
+        val outputFileName = "out_${System.currentTimeMillis()}$outputExtension"
+        val outputFile = File(context.cacheDir, outputFileName)
+        if (outputFile.exists()) outputFile.delete()
+
+        // 2. [新增核心逻辑] 主动获取总时长 (Proactive Duration Check)
+        // 不再依赖不稳定的日志解析，直接问 FFprobe 视频有多长
+        var totalDuration = 0L
+        try {
+            val mediaInfo = FFprobeKit.getMediaInformation(tempInputPath)
+            val durationStr = mediaInfo.mediaInformation.duration
+            // durationStr 通常是秒数，例如 "30.52"
+            if (!durationStr.isNullOrEmpty()) {
+                totalDuration = (durationStr.toDouble() * 1000).toLong()
+                Log.d(TAG, "✅ FFprobe 预先获取时长: $totalDuration ms")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "FFprobe 获取时长失败: ${e.message}")
+        }
+
+        // 3. 拼接命令
+        val fullCommand = "-y -i \"$tempInputPath\" $args \"${outputFile.absolutePath}\""
+
+        logs.add(">>> 开始执行命令: $fullCommand")
+        // 初始状态
+        trySend(FfmpegTaskState.Running(0f, logs.toList(), totalDuration, fullCommand))
+
+        // 4. 执行命令
+        val session = FFmpegKit.executeAsync(fullCommand,
+            { session ->
+                // --- 完成回调 ---
+                val returnCode = session.returnCode
+                val endTime = System.currentTimeMillis()
+
+                if (ReturnCode.isSuccess(returnCode)) {
+                    logs.add(">>> 成功，耗时: ${(endTime - startTime)/1000}s")
+                    trySend(FfmpegTaskState.Success(outputFile.absolutePath, logs.toList(), endTime - startTime))
+                } else {
+                    logs.add(">>> 错误: RC=$returnCode")
+                    logs.add(">>> 堆栈: ${session.failStackTrace}")
+                    trySend(FfmpegTaskState.Error("FFmpeg 失败 (RC=$returnCode)", logs.toList()))
+                }
+                close()
+            },
+            { log ->
+                // --- 日志回调 ---
+                logs.add(log.message)
+                if (logs.size > 1000) logs.removeAt(0)
+
+                // [保底逻辑] 如果 FFprobe 失败了 (totalDuration 还是 0)，才尝试从日志捞
+                if (totalDuration == 0L) {
+                    val tempDuration = parseDuration(log.message)
+                    if (tempDuration > 0) {
+                        totalDuration = tempDuration
+                        Log.d(TAG, "⚠️ 触发保底逻辑，从日志解析时长: $totalDuration ms")
+                    }
+                }
+
+                trySend(FfmpegTaskState.Running(currentProgress, logs.toList(), totalDuration, fullCommand))
+            },
+            { stats ->
+                // --- 进度回调 ---
+                // stats.time 返回的是毫秒
+                if (totalDuration > 0) {
+                    val timeMs = stats.time.toDouble()
+                    val rawProgress = (timeMs / totalDuration.toDouble()).toFloat()
+
+                    // 确保进度不倒退(可选)，且在 0~1 之间
+                    if (rawProgress > currentProgress) {
+                        currentProgress = rawProgress.coerceIn(0f, 1f)
+                    }
+
+                    trySend(FfmpegTaskState.Running(currentProgress, logs.toList(), totalDuration, fullCommand))
+                }
+            }
+        )
+
+        sessionId = session.sessionId
+
+        awaitClose {
+            sessionId?.let { FFmpegKit.cancel(it) }
+        }
+    }.flowOn(Dispatchers.IO)
+
     suspend fun getMediaInfo(filePath: String): String = withContext(Dispatchers.IO) {
         try {
-            // 1. 获取原始 ffprobe 数据
             val command = "-v quiet -print_format json -show_format -show_streams \"$filePath\""
             val session = FFprobeKit.execute(command)
 
             if (ReturnCode.isSuccess(session.returnCode)) {
-                val rawJson = session.output ?: "{}"
-
-                // 2. [核心逻辑] 构建带提示词的包装 JSON
+                val rawJson = session.output
                 val instruction = """
                     你是一个专为 Android 移动端 FFmpeg 工具生成参数的专家助手。
                     请根据下方的 'media_data' 分析媒体流信息，并生成优化的处理参数。
@@ -44,7 +138,7 @@ class FfmpegRepository(private val context: Context) {
                     2. ❌ 严禁引入外部文件：绝对不要生成 -i watermark.png, -vf subtitles=file.srt。
                     3. ❌ 严禁多文件输出：绝对不要生成 -f segment, -f hls, -map 0:v -map 0:a (多路)。
                     4. ✅ 允许复杂滤镜：可以使用 -filter_complex (或 -lavfi) 进行流的克隆(split)、混合(blend)、堆叠(stack)。
-
+                    
                     【💡 复杂滤镜语法指南 (易错点)】
                     1. 变量命名差异：
                        - 在 scale/crop/overlay 中，请使用 'iw' (输入宽) 和 'ih' (输入高)。
@@ -53,6 +147,16 @@ class FfmpegRepository(private val context: Context) {
                        - 逗号 ',' 表示顺序执行 (先缩放再裁剪)。
                        - 分号 ';' 表示并行流 (流A做缩放，流B做旋转)。
                        - 必须显式命名流，例如 [v1], [main], [pip]。
+                    3.稳定性优先：在 filter_complex 中涉及时间动画时，请优先使用帧数变量 n 而非时间变量 T（例如 sin(n/10)）。在 FFmpeg 中，变量 n 和 t（时间）在 overlay、drawtext 或 geq 滤镜中是可用的，但在 blend 滤镜的表达式中是不支持的
+                        变量规范：在 geq/blend 表达式中务必使用 W/H；在 overlay/scale 中务必使用 iw/ih。
+                        遮罩逻辑：实现复杂形状切割请使用 geq 生成黑白遮罩，配合 maskedmerge 滤镜进行三路融合。
+                        geq 滤镜如果没有指定输入源，它会尝试创建一个新的流，但在这种三路并行（原视频、反色视频、遮罩）的结构中，不指定输入的 geq 往往会导致 FilterGraph 无法正确挂载到时间线上。此外，geq 默认需要处理色彩分量，我们必须明确指定只处理亮度 lum。
+                        健壮性：在所有复杂分支后添加 format=yuv420p 以确保 Android 端兼容性。
+                        流管理：严禁重复使用已消耗的流标签，请根据需求准确使用 split 滤镜。
+                    4.在 Android 端（特别是 FFmpeg Kit 环境下）：
+                        线程膨胀：-filter_complex 为了保证多路流的实时性，会开启更复杂的内部调度线程。在处理高清视频时，这些线程会竞态申请连续的大块内存。
+                        上下文开销：filter_complex 需要维护一个完整的 FilterGraph 结构，对于单纯想在同一个视频上做画中画的操作来说，它的“行政开销”太大了。
+                        内存管理：当使用 -vf 里的 split 时，FFmpeg 往往能复用同一个 Buffer 引用；而在 -filter_complex 中，系统倾向于做深拷贝以保证分支独立性，这直接导致了内存溢出。
 
                     【🚀 推荐的高级命令示例】
                     1. 左右分屏对比 (左边原色，右边素描):
@@ -75,93 +179,48 @@ class FfmpegRepository(private val context: Context) {
                     5.生成命令时要用代码块包裹命令
                     【✅ 最终输出示例】
                     -filter_complex "split[v1][v2];[v2]hue=s=0[bw];[v1][bw]hstack" -c:v libx264 -preset ultrafast -c:a copy
-                    
+                    -vf "split[m][p];[p]scale=iw/3:-1,rotate=n/10:c=none:ow=rotw(iw):oh=roth(ih)[pr];[m][pr]overlay=x='W/2+W/3*cos(n/20)-w/2':y='H/2+H/4*sin(n/20)-h/2',format=yuv420p" -c:v libx264 -preset ultrafast -c:a copy "output"
+                
                 """.trimIndent()
 
-                // 使用 JSONObject 包装，确保生成的字符串符合标准且结构清晰
                 val wrapper = JSONObject()
-                // 使用 "0_" 前缀确保在大多数 JSON 排序中靠前显示
                 wrapper.put("0_instruction_for_ai", instruction)
                 wrapper.put("media_data", JSONObject(rawJson))
 
-                // 返回格式化后的 JSON (缩进 2 空格)，极大地提高了 AI 的阅读准确率
                 wrapper.toString(2)
             } else {
-                "获取媒体信息失败: ReturnCode=${session.returnCode}\n${session.failStackTrace ?: ""}"
+                "获取信息失败: RC=${session.returnCode}"
             }
         } catch (e: Exception) {
-            "执行 FFprobe 异常: ${e.message}"
+            "异常: ${e.message}"
         }
     }
 
     /**
-     * 执行自定义 FFmpeg 命令.
+     * [核心修复 2] 增强版正则解析
+     * 支持: "Duration: 00:00:00.00" (标准)
+     * 支持: "Duration: 00:00:00" (无毫秒)
+     * 忽略空格
      */
-    fun executeCommand(
-        inputUri: String,
-        args: String,
-        outputExtension: String
-    ): Flow<FfmpegTaskState> = callbackFlow {
-        var sessionId: Long? = null
-        val logs = mutableListOf<String>()
-        val startTime = System.currentTimeMillis()
-        var totalDuration = 0L
-
-        val tempInputPath = Uri.parse(inputUri).path?.let {
-            URLDecoder.decode(it, "UTF-8")
-        } ?: throw IllegalArgumentException("无效的输入路径")
-
-        val outputFileName = "out_${System.currentTimeMillis()}$outputExtension"
-        val outputFile = File(context.cacheDir, outputFileName)
-        if (outputFile.exists()) outputFile.delete()
-
-        val fullCommand = "-y -i \"$tempInputPath\" $args \"${outputFile.absolutePath}\""
-
-        logs.add(">>> 开始执行命令: $fullCommand")
-        trySend(FfmpegTaskState.Running(0f, logs.toList(), 0L, fullCommand))
-
-        val session = FFmpegKit.executeAsync(fullCommand,
-            { session ->
-                val returnCode = session.returnCode
-                val endTime = System.currentTimeMillis()
-
-                if (ReturnCode.isSuccess(returnCode)) {
-                    logs.add(">>> 命令执行成功，耗时: ${(endTime - startTime)/1000}s")
-                    trySend(FfmpegTaskState.Success(outputFile.absolutePath, logs.toList(), endTime - startTime))
-                } else {
-                    logs.add(">>> 错误: 退出代码 $returnCode")
-                    logs.add(">>> 错误日志: ${session.failStackTrace}")
-                    trySend(FfmpegTaskState.Error("FFmpeg 执行失败 (RC=$returnCode)", logs.toList()))
-                }
-                close()
-            },
-            { log ->
-                logs.add(log.message)
-                if (logs.size > 1000) logs.removeAt(0)
-                if (totalDuration == 0L && log.message.contains("Duration:")) {
-                    totalDuration = parseDuration(log.message)
-                }
-                trySend(FfmpegTaskState.Running(-1f, logs.toList(), totalDuration, fullCommand))
-            },
-            { stats ->
-                if (totalDuration > 0) {
-                    val progress = (stats.time.toLong() / 1000.0 / totalDuration).toFloat().coerceIn(0f, 1f)
-                    trySend(FfmpegTaskState.Running(progress, logs.toList(), totalDuration, fullCommand))
-                }
-            }
-        )
-
-        sessionId = session.sessionId
-        awaitClose { sessionId?.let { FFmpegKit.cancel(it) } }
-    }.flowOn(Dispatchers.IO)
-
     private fun parseDuration(log: String): Long {
         try {
-            val pattern = "Duration: (\\d{2}):(\\d{2}):(\\d{2}\\.\\d{2})".toRegex()
+            // 正则说明：
+            // Duration:\s+  -> 匹配 "Duration:" 后面的一个或多个空格
+            // (\d+)         -> 匹配小时 (支持 >99 小时)
+            // :(\d+)        -> 匹配分钟
+            // :(\d+(?:\.\d+)?) -> 匹配秒 (支持小数，例如 30 或 30.65)
+            val pattern = """Duration:\s+(\d+):(\d+):(\d+(?:\.\d+)?)""".toRegex()
+
             val match = pattern.find(log) ?: return 0L
             val (h, m, s) = match.destructured
-            return ((h.toLong() * 3600 + m.toLong() * 60 + s.toDouble()) * 1000).toLong()
+
+            val hours = h.toLong()
+            val minutes = m.toLong()
+            val seconds = s.toDouble()
+
+            return ((hours * 3600 + minutes * 60 + seconds) * 1000).toLong()
         } catch (e: Exception) {
+            // Log.e(TAG, "解析出错: ${e.message}") // 过于频繁，注释掉
             return 0L
         }
     }
