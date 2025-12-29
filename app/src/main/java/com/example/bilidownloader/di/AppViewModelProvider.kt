@@ -56,13 +56,14 @@ object AppViewModelProvider {
             )
         }
 
-        // --- FFmpeg 处理模块 (新增) ---
+        // --- FFmpeg 处理模块 ---
         initializer {
             val app = bilidownloaderApplication()
             FfmpegViewModel(
                 application = app,
                 repository = app.container.ffmpegRepository,
-                savedStateHandle = createSavedStateHandle() // 注入 SavedStateHandle 以支持进程重启后的状态恢复
+                presetDao = app.container.ffmpegPresetDao, // [新增] 注入 FFmpeg 预设 DAO
+                savedStateHandle = createSavedStateHandle() // 注入 SavedStateHandle
             )
         }
 

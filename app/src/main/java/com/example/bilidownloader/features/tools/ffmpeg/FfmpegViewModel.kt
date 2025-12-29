@@ -10,10 +10,14 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import com.example.bilidownloader.core.database.FfmpegPresetDao
+import com.example.bilidownloader.core.database.FfmpegPresetEntity
 import com.example.bilidownloader.core.util.StorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
@@ -33,6 +37,7 @@ data class LocalMedia(
 class FfmpegViewModel(
     application: Application,
     private val repository: FfmpegRepository,
+    private val presetDao: FfmpegPresetDao, // [注入] 预设数据库操作接口
     private val savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application) {
 
@@ -46,6 +51,16 @@ class FfmpegViewModel(
     val isMediaLoading = _isMediaLoading.asStateFlow()
 
     private var cachedInputPath: String? = null
+
+    /**
+     * [新增] 预设列表流
+     * 使用 stateIn 将 Room 的 Flow 转换为 StateFlow，供 Compose UI 观察
+     */
+    val presetList = presetDao.getAllPresets().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
 
     init {
         // --- 1. 处理从外部传入的预设参数 ---
@@ -62,10 +77,7 @@ class FfmpegViewModel(
         // --- 2. 监听全局 Session 状态 ---
         viewModelScope.launch {
             FfmpegSession.taskState.collect { taskState ->
-                // 将全局状态同步到 UI State
                 _uiState.update { it.copy(taskState = taskState) }
-
-                // 如果任务成功，自动触发保存逻辑
                 if (taskState is FfmpegTaskState.Success) {
                     saveToGallery(File(taskState.outputUri))
                 }
@@ -73,11 +85,51 @@ class FfmpegViewModel(
         }
     }
 
-    // region --- 媒体库扫描逻辑 ---
+    // region --- 预设管理逻辑 ---
 
     /**
-     * 加载本地媒体文件（视频或音频）
+     * [新增] 将当前输入的参数和后缀保存为新预设
      */
+    fun saveCurrentAsPreset(name: String) {
+        val currentState = _uiState.value
+        // 基本校验：名称和参数不能为空
+        if (name.isBlank() || currentState.arguments.isBlank()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val entity = FfmpegPresetEntity(
+                name = name,
+                commandArgs = currentState.arguments.trim(),
+                outputExtension = currentState.outputExtension
+            )
+            presetDao.insertPreset(entity)
+        }
+    }
+
+    /**
+     * [新增] 删除指定预设
+     */
+    fun deletePreset(preset: FfmpegPresetEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            presetDao.deletePreset(preset)
+        }
+    }
+
+    /**
+     * [新增] 应用预设到当前 UI 状态
+     */
+    fun applyPreset(preset: FfmpegPresetEntity) {
+        _uiState.update {
+            it.copy(
+                arguments = preset.commandArgs,
+                outputExtension = preset.outputExtension
+            )
+        }
+    }
+
+    // endregion
+
+    // region --- 媒体库扫描逻辑 ---
+
     fun loadLocalMedia(isVideo: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             _isMediaLoading.value = true
@@ -103,9 +155,7 @@ class FfmpegViewModel(
 
                 val sortOrder = "${MediaStore.MediaColumns.DATE_ADDED} DESC"
 
-                context.contentResolver.query(
-                    collection, projection, null, null, sortOrder
-                )?.use { cursor ->
+                context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                     val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
                     val durCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DURATION)
@@ -160,7 +210,6 @@ class FfmpegViewModel(
             val mimeType = context.contentResolver.getType(uri)
             val defaultExt = if (mimeType?.startsWith("audio") == true) ".mp3" else ".mp4"
 
-            // 将原始 URI 拷贝到私有缓存目录，方便 FFmpeg 直接通过 File Path 访问
             val cacheFile = StorageHelper.copyUriToCache(context, uri, "ffmpeg_input_temp")
 
             if (cacheFile != null) {
@@ -207,23 +256,19 @@ class FfmpegViewModel(
             return
         }
 
-        // --- [核心逻辑] 清洗参数，防止非法换行或多余空格导致命令解析失败 ---
         val rawArgs = currentState.arguments
-        // 1. 将所有空白字符（换行、回车、制表符、多余空格）替换为单个空格
-        // 2. 去掉首尾空格
+        // 参数清洗：替换换行符并修剪空格
         val cleanArgs = rawArgs.replace(Regex("\\s+"), " ").trim()
 
-        // 如果清洗后参数发生变化，更新 UI 显示
         if (cleanArgs != rawArgs) {
             _uiState.update { it.copy(arguments = cleanArgs) }
         }
 
-        // 启动后台服务执行 FFmpeg 任务
         val context = getApplication<Application>()
         val intent = Intent(context, FfmpegService::class.java).apply {
             action = FfmpegService.ACTION_START
             putExtra(FfmpegService.EXTRA_INPUT_URI, "file://$inputPath")
-            putExtra(FfmpegService.EXTRA_ARGS, cleanArgs) // 使用清洗后的参数
+            putExtra(FfmpegService.EXTRA_ARGS, cleanArgs)
             putExtra(FfmpegService.EXTRA_EXT, currentState.outputExtension)
         }
 
