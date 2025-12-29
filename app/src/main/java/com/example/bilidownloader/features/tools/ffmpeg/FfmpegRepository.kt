@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
-import org.json.JSONObject // [新增] 用于构建 AI 包装结构
+import org.json.JSONObject // 用于构建 AI 包装结构
 import java.io.File
 import java.net.URLDecoder
 
@@ -36,15 +36,46 @@ class FfmpegRepository(private val context: Context) {
 
                 // 2. [核心逻辑] 构建带提示词的包装 JSON
                 val instruction = """
-                    你是一个专业的 FFmpeg 参数生成助手。请根据提供的 'media_data' 分析媒体流信息（如编码格式、分辨率、码率等），并根据我的需求生成优化后的命令。
+                    你是一个专为 Android 移动端 FFmpeg 工具生成参数的专家助手。
+                    请根据下方的 'media_data' 分析媒体流信息，并生成优化的处理参数。
+
+                    【⚠️ 核心架构限制 (绝对红线)】
+                    1. 架构为 "单文件输入 -> 内存处理 -> 单文件输出"。
+                    2. ❌ 严禁引入外部文件：绝对不要生成 -i watermark.png, -vf subtitles=file.srt。
+                    3. ❌ 严禁多文件输出：绝对不要生成 -f segment, -f hls, -map 0:v -map 0:a (多路)。
+                    4. ✅ 允许复杂滤镜：可以使用 -filter_complex (或 -lavfi) 进行流的克隆(split)、混合(blend)、堆叠(stack)。
+
+                    【💡 复杂滤镜语法指南 (易错点)】
+                    1. 变量命名差异：
+                       - 在 scale/crop/overlay 中，请使用 'iw' (输入宽) 和 'ih' (输入高)。
+                       - 在 blend/geq 数学表达式中，必须使用 'W' (宽) 和 'H' (高)，严禁使用 'iw'/'ih' 否则会报错。
+                    2. 链式语法：
+                       - 逗号 ',' 表示顺序执行 (先缩放再裁剪)。
+                       - 分号 ';' 表示并行流 (流A做缩放，流B做旋转)。
+                       - 必须显式命名流，例如 [v1], [main], [pip]。
+
+                    【🚀 推荐的高级命令示例】
+                    1. 左右分屏对比 (左边原色，右边素描):
+                       -filter_complex "split[a][b];[b]edgedetect[b_edge];[a]crop=iw/2:ih:0:0[left];[b_edge]crop=iw/2:ih:iw/2:0[right];[left][right]hstack"
                     
-                    【严格输出规则】：
-                    1. 仅输出参数部分 (Arguments)，不要包含 'ffmpeg'、'-i input' 或输出文件名。
-                    2. 必须是单行字符串，禁止换行符 (\)。
-                    3. 针对 Android 手机性能优化（默认使用 -preset medium 或 fast）。
+                    2. 动态波浪分界线 (数学曲线遮罩):
+                       -filter_complex "split[a][b];[b]negate[b_neg];[a][b_neg]blend=all_expr='if(gt(Y, H/2 + H/10 * sin(X/W*4*PI + T*3)), A, B)'"
                     
-                    【输出示例】：
-                    -c:v libx264 -crf 23 -c:a aac -b:a 128k
+                    3. 画中画 (PIP):
+                       -filter_complex "split[main][pip];[pip]scale=iw/4:-1[pip_small];[main][pip_small]overlay=main_w-overlay_w-20:main_h-overlay_h-20"
+                    
+                    4. 赛博朋克故障风:
+                       -filter_complex "split[a][b];[b]rgbashift=rh=-10:bh=10,noise=alls=20:allf=t+u[glitch];[a][glitch]blend=all_expr='if(gt(sin(T*10),0.8),B,A)'"
+
+                    【📝 输出格式严格要求】
+                    1. 仅输出参数字符串 (Arguments)。
+                    2. 不要包含 'ffmpeg', '-i input', 'output.mp4'。
+                    3. 必须是单行字符串，禁止换行符。
+                    4. 默认添加 -preset ultrafast 以优化手机性能。
+                    5.生成命令时要用代码块包裹命令
+                    【✅ 最终输出示例】
+                    -filter_complex "split[v1][v2];[v2]hue=s=0[bw];[v1][bw]hstack" -c:v libx264 -preset ultrafast -c:a copy
+                    
                 """.trimIndent()
 
                 // 使用 JSONObject 包装，确保生成的字符串符合标准且结构清晰

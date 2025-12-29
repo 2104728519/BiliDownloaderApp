@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -46,7 +47,6 @@ import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.example.bilidownloader.di.AppViewModelProvider
-import com.example.bilidownloader.features.ffmpeg.LocalMedia
 
 /**
  * FFmpeg 万能终端界面.
@@ -270,11 +270,9 @@ fun VideoGridItem(media: LocalMedia, onClick: () -> Unit) {
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(media.uri)
-                // 强制使用 VideoFrameDecoder 解析视频帧
                 .decoderFactory { result, options, _ ->
                     VideoFrameDecoder(result.source, options)
                 }
-                // 截取第 1000 毫秒 (1秒) 的画面
                 .videoFrameMillis(1000)
                 .crossfade(true)
                 .build(),
@@ -378,7 +376,7 @@ private fun FileSelectionCard(
                 }
             }
 
-            // 右侧功能按钮：复制详细信息
+            // 右侧功能按钮
             if (fileName.isNotEmpty()) {
                 IconButton(
                     onClick = {
@@ -403,9 +401,6 @@ private fun FileSelectionCard(
     }
 }
 
-/**
- * 命令构建区域：包含参数输入和一键清空按钮
- */
 @Composable
 private fun CommandBuilderArea(
     uiState: FfmpegUiState,
@@ -415,7 +410,12 @@ private fun CommandBuilderArea(
     isRunning: Boolean
 ) {
     Column(modifier = Modifier.padding(16.dp)) {
-        Text("COMMAND PREVIEW", style = MaterialTheme.typography.labelSmall, color = Color.Gray, letterSpacing = 2.sp)
+        Text(
+            text = "COMMAND PREVIEW",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray,
+            letterSpacing = 2.sp
+        )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             buildAnnotatedString {
@@ -426,17 +426,24 @@ private fun CommandBuilderArea(
             fontSize = 14.sp
         )
 
-        // 参数输入框
+        // 参数输入框：添加了行数限制
         OutlinedTextField(
             value = uiState.arguments,
             onValueChange = onArgsChange,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 16.sp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            textStyle = androidx.compose.ui.text.TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 16.sp
+            ),
             placeholder = { Text("-c:v libx264 ...") },
             enabled = !isRunning,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            // --- [核心修改点] ---
+            minLines = 1,
             maxLines = 5,
-            // 尾部清空按钮
+            // ------------------
             trailingIcon = {
                 if (uiState.arguments.isNotEmpty() && !isRunning) {
                     IconButton(onClick = { onArgsChange("") }) {
@@ -455,8 +462,13 @@ private fun CommandBuilderArea(
             OutlinedTextField(
                 value = uiState.outputExtension,
                 onValueChange = onExtChange,
-                modifier = Modifier.width(100.dp).padding(start = 8.dp),
-                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
+                modifier = Modifier
+                    .width(100.dp)
+                    .padding(start = 8.dp),
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 14.sp
+                ),
                 singleLine = true,
                 enabled = !isRunning,
                 label = { Text("后缀") }
@@ -465,11 +477,18 @@ private fun CommandBuilderArea(
             Button(
                 onClick = onExecute,
                 enabled = !isRunning && uiState.inputFileUri != null,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1E), contentColor = Color(0xFF00FF00)),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF1E1E1E),
+                    contentColor = Color(0xFF00FF00)
+                ),
                 shape = RoundedCornerShape(4.dp)
             ) {
                 if (isRunning) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color(0xFF00FF00), strokeWidth = 2.dp)
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = Color(0xFF00FF00),
+                        strokeWidth = 2.dp
+                    )
                 } else {
                     Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
@@ -483,6 +502,9 @@ private fun CommandBuilderArea(
 @Composable
 private fun TerminalConsole(taskState: FfmpegTaskState, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
+    val clipboardManager = LocalClipboardManager.current // 剪贴板管理器
+    val context = LocalContext.current // 用于 Toast
+
     val logs = when (taskState) {
         is FfmpegTaskState.Running -> taskState.logs
         is FfmpegTaskState.Success -> taskState.logs
@@ -490,38 +512,86 @@ private fun TerminalConsole(taskState: FfmpegTaskState, modifier: Modifier = Mod
         else -> emptyList()
     }
 
+    // 自动滚动到底部
     LaunchedEffect(logs.size) {
-        if (logs.isNotEmpty()) listState.animateScrollToItem(logs.size - 1)
+        if (logs.isNotEmpty()) {
+            listState.animateScrollToItem(logs.size - 1)
+        }
     }
 
     Column(modifier = modifier) {
+        // 进度条
         if (taskState is FfmpegTaskState.Running) {
             LinearProgressIndicator(
                 progress = { if (taskState.progress < 0) 0f else taskState.progress },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp),
                 color = Color(0xFF00FF00),
                 trackColor = Color.Black
             )
         }
-        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(8.dp)) {
+
+        // 日志区域容器
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF1E1E1E))
+                .padding(8.dp)
+        ) {
             if (logs.isEmpty()) {
-                Text("> Waiting for command...", color = Color.Gray, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.align(Alignment.Center))
+                Text(
+                    "> Waiting for command...",
+                    color = Color.Gray,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    modifier = Modifier.align(Alignment.Center)
+                )
             } else {
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                    items(logs) { log ->
-                        Text(
-                            text = log,
-                            color = when {
-                                log.contains("Error") || log.contains("错误") -> Color.Red
-                                log.contains("Success") || log.contains("成功") -> Color(0xFF00FF00)
-                                log.startsWith(">>>") -> Color.Cyan
-                                else -> Color.LightGray
-                            },
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            lineHeight = 14.sp
-                        )
+                // [修改 1] 使用 SelectionContainer 包裹，支持长按选择文本
+                SelectionContainer {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        // 底部留白，防止最后一行被复制按钮遮挡
+                        contentPadding = PaddingValues(bottom = 48.dp)
+                    ) {
+                        items(logs) { log ->
+                            Text(
+                                text = log,
+                                color = when {
+                                    log.contains("Error") || log.contains("错误") -> Color.Red
+                                    log.contains("Success") || log.contains("成功") -> Color(0xFF00FF00)
+                                    log.startsWith(">>>") -> Color.Cyan
+                                    else -> Color.LightGray
+                                },
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
                     }
+                }
+
+                //  右上角悬浮复制按钮
+                IconButton(
+                    onClick = {
+                        val fullLog = logs.joinToString("\n")
+                        clipboardManager.setText(AnnotatedString(fullLog))
+                        Toast.makeText(context, "完整日志已复制", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(32.dp)
+                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "复制日志",
+                        tint = Color.LightGray,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }

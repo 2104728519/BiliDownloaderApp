@@ -13,13 +13,13 @@ data class FfmpegUiState(
     val inputFileName: String = "",
     val inputFileSize: String = "",
 
-    // [新增] 存储详细的媒体信息 (通常为 FFprobe 返回的 JSON 字符串)
+    // 存储详细的媒体信息 (通常为 FFprobe 返回的 JSON 字符串)
     // 用于给 AI 分析或在详情面板展示编码信息
     val mediaInfo: String = "",
 
     // --- 参数槽位 (Slot 2-4: Args) ---
     // 用户可编辑的 FFmpeg 核心参数区域
-    val arguments: String = "",
+    val arguments: String = "选择文件后可复制信息并粘贴给ai帮你生成合适的命令",
 
     // --- 输出槽位 (Slot 5: Output) ---
     // 决定输出文件的封装格式
