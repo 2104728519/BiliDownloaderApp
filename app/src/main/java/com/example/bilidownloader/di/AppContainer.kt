@@ -2,6 +2,7 @@ package com.example.bilidownloader.di
 
 import android.content.Context
 import com.example.bilidownloader.core.database.AppDatabase
+import com.example.bilidownloader.core.database.FfmpegPresetDao // [新增] 导入 DAO
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.features.aicomment.CommentRepository
 import com.example.bilidownloader.features.aicomment.LlmRepository
@@ -16,7 +17,7 @@ import com.example.bilidownloader.features.tools.audiocrop.MediaRepository
 
 /**
  * 依赖注入容器接口.
- * 定义应用中所有 Repository 的单例获取方式.
+ * 定义应用中所有 Repository 和必要 DAO 的单例获取方式.
  * 遵循逻辑下沉原则，业务逻辑由 Repository 层承担.
  */
 interface AppContainer {
@@ -35,6 +36,10 @@ interface AppContainer {
     // --- 工具与媒体处理 Repository ---
     val ffmpegRepository: FfmpegRepository   // FFmpeg 视频处理
     val mediaRepository: MediaRepository     // 媒体资源访问
+
+    // --- 数据持久层 DAO ---
+    /** [新增] FFmpeg 指令预设数据操作接口 */
+    val ffmpegPresetDao: FfmpegPresetDao
 }
 
 /**
@@ -98,6 +103,17 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val mediaRepository by lazy {
         MediaRepository(context)
+    }
+
+    // endregion
+
+    // region DAO 实例化实现
+
+    /**
+     * [新增] 暴露 FFmpeg 预设 DAO，供 ViewModel 或 Repository 调用
+     */
+    override val ffmpegPresetDao by lazy {
+        database.ffmpegPresetDao()
     }
 
     // endregion
