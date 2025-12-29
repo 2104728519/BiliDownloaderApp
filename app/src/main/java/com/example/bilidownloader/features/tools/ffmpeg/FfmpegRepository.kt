@@ -12,17 +12,49 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 import java.net.URLDecoder
 
 /**
  * FFmpeg 核心执行仓库 (The Engine).
+ * * 职责：
+ * 1. 执行 FFmpeg 指令并流式返回进度。
+ * 2. 使用 FFprobe 预检媒体信息。
+ * 3. [新增] 远程获取文本配置。
  */
 class FfmpegRepository(private val context: Context) {
 
     private val TAG = "FfmpegRepo"
 
+    // 初始化 OkHttpClient (建议在正式项目中通过 Dagger/Koin 注入)
+    private val httpClient = OkHttpClient.Builder()
+        .followRedirects(true)
+        .build()
+
+    /**
+     * [新增] 从指定 URL 下载文本内容 (如预设指令、Prompt 等).
+     * @param url 远程地址
+     * @return 文本字符串
+     */
+    suspend fun fetchTextFromUrl(url: String): String = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Android)")
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw Exception("网络请求失败: HTTP ${response.code}")
+
+            response.body?.string() ?: throw Exception("响应正文为空")
+        }
+    }
+
+    /**
+     * 执行 FFmpeg 命令并监听实时进度
+     */
     fun executeCommand(
         inputUri: String,
         args: String,
@@ -34,7 +66,7 @@ class FfmpegRepository(private val context: Context) {
 
         var currentProgress = 0f
 
-        // 1. 准备路径
+        // 1. 准备路径逻辑
         val tempInputPath = Uri.parse(inputUri).path?.let {
             URLDecoder.decode(it, "UTF-8")
         } ?: throw IllegalArgumentException("无效的输入路径")
@@ -43,13 +75,11 @@ class FfmpegRepository(private val context: Context) {
         val outputFile = File(context.cacheDir, outputFileName)
         if (outputFile.exists()) outputFile.delete()
 
-        // 2. [新增核心逻辑] 主动获取总时长 (Proactive Duration Check)
-        // 不再依赖不稳定的日志解析，直接问 FFprobe 视频有多长
+        // 2. 主动获取总时长 (Proactive Duration Check)
         var totalDuration = 0L
         try {
             val mediaInfo = FFprobeKit.getMediaInformation(tempInputPath)
             val durationStr = mediaInfo.mediaInformation.duration
-            // durationStr 通常是秒数，例如 "30.52"
             if (!durationStr.isNullOrEmpty()) {
                 totalDuration = (durationStr.toDouble() * 1000).toLong()
                 Log.d(TAG, "✅ FFprobe 预先获取时长: $totalDuration ms")
@@ -60,15 +90,13 @@ class FfmpegRepository(private val context: Context) {
 
         // 3. 拼接命令
         val fullCommand = "-y -i \"$tempInputPath\" $args \"${outputFile.absolutePath}\""
-
         logs.add(">>> 开始执行命令: $fullCommand")
-        // 初始状态
+
         trySend(FfmpegTaskState.Running(0f, logs.toList(), totalDuration, fullCommand))
 
-        // 4. 执行命令
+        // 4. 异步执行
         val session = FFmpegKit.executeAsync(fullCommand,
             { session ->
-                // --- 完成回调 ---
                 val returnCode = session.returnCode
                 val endTime = System.currentTimeMillis()
 
@@ -83,33 +111,24 @@ class FfmpegRepository(private val context: Context) {
                 close()
             },
             { log ->
-                // --- 日志回调 ---
                 logs.add(log.message)
                 if (logs.size > 1000) logs.removeAt(0)
 
-                // [保底逻辑] 如果 FFprobe 失败了 (totalDuration 还是 0)，才尝试从日志捞
                 if (totalDuration == 0L) {
                     val tempDuration = parseDuration(log.message)
                     if (tempDuration > 0) {
                         totalDuration = tempDuration
-                        Log.d(TAG, "⚠️ 触发保底逻辑，从日志解析时长: $totalDuration ms")
                     }
                 }
-
                 trySend(FfmpegTaskState.Running(currentProgress, logs.toList(), totalDuration, fullCommand))
             },
             { stats ->
-                // --- 进度回调 ---
-                // stats.time 返回的是毫秒
                 if (totalDuration > 0) {
                     val timeMs = stats.time.toDouble()
                     val rawProgress = (timeMs / totalDuration.toDouble()).toFloat()
-
-                    // 确保进度不倒退(可选)，且在 0~1 之间
                     if (rawProgress > currentProgress) {
                         currentProgress = rawProgress.coerceIn(0f, 1f)
                     }
-
                     trySend(FfmpegTaskState.Running(currentProgress, logs.toList(), totalDuration, fullCommand))
                 }
             }
@@ -122,6 +141,9 @@ class FfmpegRepository(private val context: Context) {
         }
     }.flowOn(Dispatchers.IO)
 
+    /**
+     * 获取媒体详细 JSON 信息并注入 AI 指令
+     */
     suspend fun getMediaInfo(filePath: String): String = withContext(Dispatchers.IO) {
         try {
             val command = "-v quiet -print_format json -show_format -show_streams \"$filePath\""
@@ -186,7 +208,6 @@ class FfmpegRepository(private val context: Context) {
                 val wrapper = JSONObject()
                 wrapper.put("0_instruction_for_ai", instruction)
                 wrapper.put("media_data", JSONObject(rawJson))
-
                 wrapper.toString(2)
             } else {
                 "获取信息失败: RC=${session.returnCode}"
@@ -196,32 +217,14 @@ class FfmpegRepository(private val context: Context) {
         }
     }
 
-    /**
-     * [核心修复 2] 增强版正则解析
-     * 支持: "Duration: 00:00:00.00" (标准)
-     * 支持: "Duration: 00:00:00" (无毫秒)
-     * 忽略空格
-     */
     private fun parseDuration(log: String): Long {
-        try {
-            // 正则说明：
-            // Duration:\s+  -> 匹配 "Duration:" 后面的一个或多个空格
-            // (\d+)         -> 匹配小时 (支持 >99 小时)
-            // :(\d+)        -> 匹配分钟
-            // :(\d+(?:\.\d+)?) -> 匹配秒 (支持小数，例如 30 或 30.65)
+        return try {
             val pattern = """Duration:\s+(\d+):(\d+):(\d+(?:\.\d+)?)""".toRegex()
-
             val match = pattern.find(log) ?: return 0L
             val (h, m, s) = match.destructured
-
-            val hours = h.toLong()
-            val minutes = m.toLong()
-            val seconds = s.toDouble()
-
-            return ((hours * 3600 + minutes * 60 + seconds) * 1000).toLong()
+            ((h.toLong() * 3600 + m.toLong() * 60 + s.toDouble()) * 1000).toLong()
         } catch (e: Exception) {
-            // Log.e(TAG, "解析出错: ${e.message}") // 过于频繁，注释掉
-            return 0L
+            0L
         }
     }
 }

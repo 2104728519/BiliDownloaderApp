@@ -18,7 +18,7 @@ import java.io.FileOutputStream
 /**
  * 媒体存储助手.
  *
- * 负责处理 Android 分区存储 (Scoped Storage) 逻辑，将文件保存到系统相册或音乐库。
+ * 负责处理 Android 分区存储 (Scoped Storage) 逻辑，将文件保存到系统相册、音乐库或下载目录。
  * 兼容 Android 10 (Q) 及以上版本的 MediaStore API 变更。
  */
 object StorageHelper {
@@ -26,8 +26,56 @@ object StorageHelper {
     sealed class StorageResult {
         object Success : StorageResult()
         object Error : StorageResult()
-        // 需要用户授权（Android 10+ 删除文件时常见）
+        // 需要用户授权（Android 10+ 操作非本应用创建的文件时常见）
         data class RequiresPermission(val intentSender: IntentSender) : StorageResult()
+    }
+
+    /**
+     * [新增] 将 JSON 字符串保存到系统下载文件夹 (Downloads).
+     * 路径：/Downloads/BiliDownloader/Presets/
+     */
+    suspend fun saveJsonToDownloads(context: Context, jsonString: String, fileName: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/json")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        // 设置子目录
+                        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/BiliDownloader/Presets")
+                        put(MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                }
+
+                val resolver = context.contentResolver
+                // Android Q+ 引入了 MediaStore.Downloads 集合
+                val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                } else {
+                    // 旧版本兼容处理：在旧版本中 Downloads 通常没有专门的媒体库集合
+                    // 这里尝试使用外部公共路径，或者降级到基础媒体路径
+                    MediaStore.Files.getContentUri("external")
+                }
+
+                val itemUri = resolver.insert(collection, values) ?: return@withContext false
+
+                // 写入 JSON 字节流
+                resolver.openOutputStream(itemUri)?.use { outputStream ->
+                    outputStream.write(jsonString.toByteArray(Charsets.UTF_8))
+                }
+
+                // 写入完成，发布文件
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    values.clear()
+                    values.put(MediaStore.Downloads.IS_PENDING, 0)
+                    resolver.update(itemUri, values, null, null)
+                }
+                true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
     }
 
     /**
@@ -37,21 +85,18 @@ object StorageHelper {
     suspend fun saveVideoToGallery(context: Context, sourceFile: File, fileName: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                // 自动获取 MIME 类型
                 val extension = fileName.substringAfterLast('.', "")
                 val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase()) ?: "video/mp4"
 
                 val values = ContentValues().apply {
                     put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
                     put(MediaStore.Video.Media.MIME_TYPE, mimeType)
-                    // Android Q+: 使用 RELATIVE_PATH 并设置 IS_PENDING 状态以独占写入
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/BiliDownloader")
                         put(MediaStore.Video.Media.IS_PENDING, 1)
                     }
                 }
 
-                // 选择合适的 Collection Uri
                 val resolver = context.contentResolver
                 val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -61,23 +106,21 @@ object StorageHelper {
 
                 val itemUri = resolver.insert(collection, values) ?: return@withContext false
 
-                // 写入数据
                 FileInputStream(sourceFile).use { inputStream ->
                     resolver.openOutputStream(itemUri)?.use { outputStream ->
                         inputStream.copyTo(outputStream)
                     }
                 }
 
-                // 写入完成，发布文件 (Android Q+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     values.clear()
                     values.put(MediaStore.Video.Media.IS_PENDING, 0)
                     resolver.update(itemUri, values, null, null)
                 }
-                return@withContext true
+                true
             } catch (e: Exception) {
                 e.printStackTrace()
-                return@withContext false
+                false
             }
         }
     }
@@ -117,17 +160,16 @@ object StorageHelper {
                     values.put(MediaStore.Images.Media.IS_PENDING, 0)
                     resolver.update(itemUri, values, null, null)
                 }
-                return@withContext true
+                true
             } catch (e: Exception) {
                 e.printStackTrace()
-                return@withContext false
+                false
             }
         }
     }
 
     /**
      * 保存音频到系统音乐库.
-     * 自动根据文件后缀识别 MIME 类型 (mp3, flac, m4a).
      */
     suspend fun saveAudioToMusic(context: Context, sourceFile: File, fileName: String): Boolean {
         return withContext(Dispatchers.IO) {
@@ -168,17 +210,16 @@ object StorageHelper {
                     values.put(MediaStore.Audio.Media.IS_PENDING, 0)
                     resolver.update(itemUri, values, null, null)
                 }
-                return@withContext true
+                true
             } catch (e: Exception) {
                 e.printStackTrace()
-                return@withContext false
+                false
             }
         }
     }
 
     /**
      * 将 Content Uri 复制到应用私有缓存目录.
-     * 用于处理用户从外部选择的文件（因为直接读取外部 Uri 可能受限）.
      */
     fun copyUriToCache(context: Context, uri: Uri, fileName: String): File? {
         return try {
@@ -192,13 +233,12 @@ object StorageHelper {
             tempFile
         } catch (e: Exception) {
             e.printStackTrace()
-            println("文件复制到缓存失败: ${e.message}")
             null
         }
     }
 
     /**
-     * 检查 Uri 指向的文件是否仍然存在于 MediaStore 中.
+     * 检查 Uri 指向的文件是否仍然存在.
      */
     suspend fun isFileExisting(context: Context, uri: Uri): Boolean {
         return withContext(Dispatchers.IO) {
@@ -220,8 +260,7 @@ object StorageHelper {
     }
 
     /**
-     * 删除音频文件.
-     * 处理了 Android 10+ 的 RecoverableSecurityException，可能需要向用户申请权限.
+     * 删除音频文件（含 Android 10+ 权限处理）.
      */
     suspend fun deleteAudioFile(context: Context, uri: Uri): StorageResult {
         return withContext(Dispatchers.IO) {
@@ -229,13 +268,11 @@ object StorageHelper {
                 val rows = context.contentResolver.delete(uri, null, null)
                 if (rows > 0) return@withContext StorageResult.Success
 
-                // 若数据库记录已不存在，也视为成功
                 if (!isFileExisting(context, uri)) {
                     return@withContext StorageResult.Success
                 }
                 StorageResult.Error
             } catch (securityException: SecurityException) {
-                // 捕获权限异常，准备 IntentSender 供 UI 调用
                 val intentSender = when {
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
                         MediaStore.createDeleteRequest(context.contentResolver, listOf(uri)).intentSender
@@ -261,7 +298,6 @@ object StorageHelper {
 
     /**
      * 重命名音频文件.
-     * 同样涉及权限处理逻辑.
      */
     suspend fun renameAudioFile(context: Context, uri: Uri, newName: String): StorageResult {
         return withContext(Dispatchers.IO) {

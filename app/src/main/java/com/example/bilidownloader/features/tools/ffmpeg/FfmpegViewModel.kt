@@ -7,19 +7,24 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.example.bilidownloader.core.database.FfmpegPresetDao
 import com.example.bilidownloader.core.database.FfmpegPresetEntity
 import com.example.bilidownloader.core.util.StorageHelper
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -31,13 +36,13 @@ data class LocalMedia(
     val name: String,
     val duration: Long,
     val size: Long,
-    val isVideo: Boolean // true=视频, false=音频
+    val isVideo: Boolean
 )
 
 class FfmpegViewModel(
     application: Application,
     private val repository: FfmpegRepository,
-    private val presetDao: FfmpegPresetDao, // [注入] 预设数据库操作接口
+    private val presetDao: FfmpegPresetDao,
     private val savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application) {
 
@@ -52,10 +57,6 @@ class FfmpegViewModel(
 
     private var cachedInputPath: String? = null
 
-    /**
-     * [新增] 预设列表流
-     * 使用 stateIn 将 Room 的 Flow 转换为 StateFlow，供 Compose UI 观察
-     */
     val presetList = presetDao.getAllPresets().stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -63,7 +64,6 @@ class FfmpegViewModel(
     )
 
     init {
-        // --- 1. 处理从外部传入的预设参数 ---
         val presetArgs = savedStateHandle.get<String>("preset_args")
         if (!presetArgs.isNullOrBlank()) {
             try {
@@ -74,7 +74,6 @@ class FfmpegViewModel(
             }
         }
 
-        // --- 2. 监听全局 Session 状态 ---
         viewModelScope.launch {
             FfmpegSession.taskState.collect { taskState ->
                 _uiState.update { it.copy(taskState = taskState) }
@@ -85,14 +84,10 @@ class FfmpegViewModel(
         }
     }
 
-    // region --- 预设管理逻辑 ---
+    // region --- 预设管理核心逻辑 ---
 
-    /**
-     * [新增] 将当前输入的参数和后缀保存为新预设
-     */
     fun saveCurrentAsPreset(name: String) {
         val currentState = _uiState.value
-        // 基本校验：名称和参数不能为空
         if (name.isBlank() || currentState.arguments.isBlank()) return
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -105,18 +100,12 @@ class FfmpegViewModel(
         }
     }
 
-    /**
-     * [新增] 删除指定预设
-     */
     fun deletePreset(preset: FfmpegPresetEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             presetDao.deletePreset(preset)
         }
     }
 
-    /**
-     * [新增] 应用预设到当前 UI 状态
-     */
     fun applyPreset(preset: FfmpegPresetEntity) {
         _uiState.update {
             it.copy(
@@ -128,7 +117,121 @@ class FfmpegViewModel(
 
     // endregion
 
-    // region --- 媒体库扫描逻辑 ---
+    // region --- [新增] 导入导出逻辑 ---
+
+    /**
+     * 导出所有预设为 JSON 文件并保存至下载目录
+     */
+    fun exportPresets() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. 获取当前所有预设
+                val currentList = presetDao.getAllPresets().first()
+                if (currentList.isEmpty()) {
+                    showToast("没有预设可导出")
+                    return@launch
+                }
+
+                // 2. 转换为传输模型并序列化
+                val exportList = currentList.map {
+                    PresetExportModel(it.name, it.commandArgs, it.outputExtension)
+                }
+                val jsonString = Gson().toJson(exportList)
+
+                // 3. 调用 StorageHelper 保存文件
+                val fileName = "ffmpeg_presets_${System.currentTimeMillis()}.json"
+                val success = StorageHelper.saveJsonToDownloads(getApplication(), jsonString, fileName)
+
+                if (success) showToast("已导出至下载目录: $fileName")
+                else showToast("导出失败")
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+                showToast("导出异常: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 从 URL 远程导入预设
+     */
+    fun importPresetsFromUrl(url: String) {
+        if (url.isBlank()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                showToast("正在下载预设文件...")
+
+                // 1. 通过 repository 下载文本
+                val jsonString = repository.fetchTextFromUrl(url)
+
+                // 2. 使用 GSON 解析
+                val type = object : TypeToken<List<PresetExportModel>>() {}.type
+                val importList: List<PresetExportModel> = Gson().fromJson(jsonString, type)
+
+                // 3. 查重入库
+                val currentList = presetDao.getAllPresets().first()
+                var successCount = 0
+                var skipCount = 0
+
+                importList.forEach { newItem ->
+                    val exists = currentList.any { it.name == newItem.name }
+                    if (!exists) {
+                        presetDao.insertPreset(
+                            FfmpegPresetEntity(
+                                name = newItem.name,
+                                commandArgs = newItem.commandArgs,
+                                outputExtension = newItem.outputExtension
+                            )
+                        )
+                        successCount++
+                    } else {
+                        skipCount++
+                    }
+                }
+
+                showToast("导入完成: 新增 $successCount 个，跳过重复 $skipCount 个")
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+                showToast("导入失败: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * [新增] 获取预设 JSON 字符串 (用于复制到剪贴板)
+     */
+    fun getPresetsJson(onResult: (String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val currentList = presetDao.getAllPresets().first()
+                if (currentList.isEmpty()) {
+                    withContext(Dispatchers.Main) { onResult(null) }
+                    return@launch
+                }
+
+                val exportList = currentList.map {
+                    PresetExportModel(it.name, it.commandArgs, it.outputExtension)
+                }
+                val jsonString = Gson().toJson(exportList)
+
+                withContext(Dispatchers.Main) { onResult(jsonString) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) { onResult(null) }
+            }
+        }
+    }
+    private suspend fun showToast(msg: String) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(getApplication(), msg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // endregion
+
+    // region --- 媒体选择与执行逻辑 (保持不变) ---
 
     fun loadLocalMedia(isVideo: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -166,14 +269,7 @@ class FfmpegViewModel(
                         val uri = ContentUris.withAppendedId(collection, id)
                         val duration = cursor.getLong(durCol)
                         if (duration > 0) {
-                            list.add(LocalMedia(
-                                id = id,
-                                uri = uri,
-                                name = cursor.getString(nameCol) ?: "Unknown",
-                                duration = duration,
-                                size = cursor.getLong(sizeCol),
-                                isVideo = isVideo
-                            ))
+                            list.add(LocalMedia(id, uri, cursor.getString(nameCol) ?: "Unknown", duration, cursor.getLong(sizeCol), isVideo))
                         }
                     }
                 }
@@ -185,11 +281,7 @@ class FfmpegViewModel(
             }
         }
     }
-    // endregion
 
-    /**
-     * 当用户从系统选择器选择文件后的处理逻辑
-     */
     fun onFileSelected(uri: Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             val context = getApplication<Application>()
@@ -201,9 +293,7 @@ class FfmpegViewModel(
                     val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                     val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
                     if (nameIndex != -1) name = cursor.getString(nameIndex)
-                    if (sizeIndex != -1) {
-                        sizeStr = formatSize(cursor.getLong(sizeIndex))
-                    }
+                    if (sizeIndex != -1) sizeStr = formatSize(cursor.getLong(sizeIndex))
                 }
             }
 
@@ -243,10 +333,6 @@ class FfmpegViewModel(
         _uiState.update { it.copy(outputExtension = validExt) }
     }
 
-    /**
-     * 执行命令
-     * 包含参数清洗逻辑，并启动前台服务执行任务
-     */
     fun executeCommand() {
         val currentState = _uiState.value
         val inputPath = cachedInputPath
@@ -256,11 +342,8 @@ class FfmpegViewModel(
             return
         }
 
-        val rawArgs = currentState.arguments
-        // 参数清洗：替换换行符并修剪空格
-        val cleanArgs = rawArgs.replace(Regex("\\s+"), " ").trim()
-
-        if (cleanArgs != rawArgs) {
+        val cleanArgs = currentState.arguments.replace(Regex("\\s+"), " ").trim()
+        if (cleanArgs != currentState.arguments) {
             _uiState.update { it.copy(arguments = cleanArgs) }
         }
 
@@ -279,9 +362,6 @@ class FfmpegViewModel(
         }
     }
 
-    /**
-     * 停止正在执行的任务
-     */
     fun stopCommand() {
         val context = getApplication<Application>()
         val intent = Intent(context, FfmpegService::class.java).apply {
@@ -290,36 +370,21 @@ class FfmpegViewModel(
         context.startService(intent)
     }
 
-    /**
-     * 自动保存结果到系统媒体库
-     */
     private suspend fun saveToGallery(file: File) {
         val context = getApplication<Application>()
         val fileName = "FFmpeg_${System.currentTimeMillis()}_${file.name}"
-
         val ext = _uiState.value.outputExtension.lowercase()
 
         val success = when {
-            ext in listOf(".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".3gp") -> {
-                StorageHelper.saveVideoToGallery(context, file, fileName)
-            }
-            ext in listOf(".gif", ".png", ".jpg", ".jpeg", ".webp") -> {
-                StorageHelper.saveGifToGallery(context, file, fileName)
-            }
-            else -> {
-                StorageHelper.saveAudioToMusic(context, file, fileName)
-            }
+            ext in listOf(".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".3gp") -> StorageHelper.saveVideoToGallery(context, file, fileName)
+            ext in listOf(".gif", ".png", ".jpg", ".jpeg", ".webp") -> StorageHelper.saveGifToGallery(context, file, fileName)
+            else -> StorageHelper.saveAudioToMusic(context, file, fileName)
         }
 
         if (success) {
             _uiState.update { s ->
                 if (s.taskState is FfmpegTaskState.Success) {
-                    val typeMsg = when {
-                        ext == ".gif" -> "相册(图片/GIF)"
-                        ext in listOf(".mp4", ".mkv") -> "相册(视频)"
-                        else -> "音乐库"
-                    }
-                    val newLogs = s.taskState.logs + ">>> ✅ 文件已保存到系统 $typeMsg"
+                    val newLogs = s.taskState.logs + ">>> ✅ 文件已保存至系统媒体库"
                     s.copy(taskState = s.taskState.copy(logs = newLogs))
                 } else s
             }
@@ -330,4 +395,5 @@ class FfmpegViewModel(
         val mb = size / 1024.0 / 1024.0
         return if (mb >= 1) String.format("%.1f MB", mb) else "${size / 1024} KB"
     }
+    // endregion
 }
