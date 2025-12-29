@@ -53,7 +53,7 @@ fun HomeScreen(
     val clipboardManager = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Android 13+ 通知权限
+    // Android 13+ 通知权限申请
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { /* 处理权限结果 */ }
@@ -66,7 +66,9 @@ fun HomeScreen(
         }
     }
 
-    // 状态监听
+    // =========================================================
+    // 状态与变量监听
+    // =========================================================
     val currentUser by viewModel.currentUser.collectAsState()
     val userList by viewModel.userList.collectAsState()
     val state by viewModel.state.collectAsState()
@@ -76,7 +78,7 @@ fun HomeScreen(
     var isSelectionMode by remember { mutableStateOf(false) }
     val selectedItems = remember { mutableStateListOf<HistoryEntity>() }
 
-    // 弹窗控制
+    // 弹窗显隐控制
     var showAccountDialog by remember { mutableStateOf(false) }
     var showManualCookieInput by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
@@ -86,6 +88,7 @@ fun HomeScreen(
         selectedItems.clear()
     }
 
+    // 生命周期监听：回到前台时同步 Cookie 状态
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) viewModel.syncCookieToUserDB()
@@ -94,6 +97,7 @@ fun HomeScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // 处理系统返回键
     BackHandler(enabled = isSelectionMode || state !is HomeState.Idle) {
         if (isSelectionMode) exitSelectionMode()
         else if (state !is HomeState.Idle) viewModel.reset()
@@ -125,14 +129,13 @@ fun HomeScreen(
                                     isCurrent = user.mid == currentUser?.mid,
                                     onClick = { if (user.mid != currentUser?.mid) viewModel.switchAccount(user) },
                                     onLongClick = {
-                                        // 智能拼接完整 Cookie
                                         var cookieStr = user.sessData.trim()
                                         if (!cookieStr.endsWith(";")) cookieStr += ";"
                                         if (!cookieStr.contains("bili_jct") && user.biliJct.isNotEmpty()) {
                                             cookieStr += " bili_jct=${user.biliJct};"
                                         }
                                         clipboardManager.setText(AnnotatedString(cookieStr))
-                                        Toast.makeText(context, "完整 Cookie 已复制 (含 CSRF)", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "完整 Cookie 已复制", Toast.LENGTH_SHORT).show()
                                     },
                                     onDelete = { viewModel.logoutAndRemove(user) }
                                 )
@@ -150,7 +153,7 @@ fun HomeScreen(
                         }) {
                             Icon(Icons.Default.Add, contentDescription = null)
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("添加账号")
+                            Text("手动添加")
                         }
 
                         if (currentUser != null) {
@@ -174,26 +177,36 @@ fun HomeScreen(
     }
 
     // =========================================================
-    // 2. 手动输入 Cookie 弹窗
+    // 2. 手动输入 Cookie 弹窗 (已修改：优化输入框高度与滚动)
     // =========================================================
     if (showManualCookieInput) {
         var cookieText by remember { mutableStateOf("") }
         Dialog(onDismissRequest = { showManualCookieInput = false }) {
-            Card(modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("添加新账号", style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(8.dp))
+
+                    // 优化后的输入框：限制最大高度并支持垂直滚动
                     OutlinedTextField(
                         value = cookieText,
                         onValueChange = { cookieText = it },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 100.dp, max = 220.dp), // 关键修改：限制物理高度
                         placeholder = { Text("粘贴 SESSDATA=xxx; bili_jct=yyy;") },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        // 配合 heightIn 使用，内部会自动根据行数出现滚动条
                         minLines = 3
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(modifier = Modifier.fillMaxWidth()) {
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = {
                             showManualCookieInput = false
                             onNavigateToLogin()
@@ -201,12 +214,17 @@ fun HomeScreen(
                             Text("短信登录")
                         }
                         Spacer(modifier = Modifier.weight(1f))
-                        TextButton(onClick = { showManualCookieInput = false }) { Text("取消") }
-                        Button(onClick = {
-                            viewModel.addOrUpdateAccount(cookieText)
-                            showManualCookieInput = false
-                            showAccountDialog = true
-                        }, enabled = cookieText.isNotBlank()) {
+                        TextButton(onClick = { showManualCookieInput = false }) {
+                            Text("取消")
+                        }
+                        Button(
+                            onClick = {
+                                viewModel.addOrUpdateAccount(cookieText)
+                                showManualCookieInput = false
+                                showAccountDialog = true
+                            },
+                            enabled = cookieText.isNotBlank()
+                        ) {
                             Text("添加")
                         }
                     }
@@ -216,7 +234,7 @@ fun HomeScreen(
     }
 
     // =========================================================
-    // 3. AI 字幕弹窗
+    // 3. AI 字幕/摘要弹窗
     // =========================================================
     if (showSubtitleDialog && state is HomeState.ChoiceSelect) {
         SubtitleDialog(
@@ -230,6 +248,9 @@ fun HomeScreen(
         )
     }
 
+    // =========================================================
+    // 主界面脚手架
+    // =========================================================
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -288,18 +309,26 @@ fun HomeScreen(
                         enabled = inputText.isNotBlank()
                     ) { Text("开始解析") }
                     Spacer(modifier = Modifier.height(24.dp))
+
                     if (historyList.isNotEmpty()) {
                         Text("历史记录", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.Start))
                         Spacer(modifier = Modifier.height(8.dp))
                     }
+
                     LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(historyList) { history ->
                             HistoryItem(
                                 history = history,
                                 isSelectionMode = isSelectionMode,
                                 isSelected = selectedItems.contains(history),
-                                onClick = { if (isSelectionMode) { if (selectedItems.contains(history)) selectedItems.remove(history) else selectedItems.add(history) } else viewModel.analyzeInput(history.bvid) },
-                                onLongClick = { if (!isSelectionMode) { isSelectionMode = true; selectedItems.add(history) } }
+                                onClick = {
+                                    if (isSelectionMode) {
+                                        if (selectedItems.contains(history)) selectedItems.remove(history) else selectedItems.add(history)
+                                    } else viewModel.analyzeInput(history.bvid)
+                                },
+                                onLongClick = {
+                                    if (!isSelectionMode) { isSelectionMode = true; selectedItems.add(history) }
+                                }
                             )
                         }
                     }
@@ -350,11 +379,19 @@ fun HomeScreen(
                         LinearProgressIndicator(progress = { currentState.progress }, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp))
                         Text("${(currentState.progress * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
                         Spacer(modifier = Modifier.height(32.dp))
+
                         val isDownloadingPhase = currentState.progress < 0.9f
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            if (currentState.info.contains("暂停")) Button(onClick = { viewModel.resumeDownload() }) { Text("继续") }
-                            else OutlinedButton(onClick = { viewModel.pauseDownload() }, enabled = isDownloadingPhase) { Text("暂停") }
-                            TextButton(onClick = { viewModel.cancelDownload() }, enabled = isDownloadingPhase, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("取消") }
+                            if (currentState.info.contains("暂停")) {
+                                Button(onClick = { viewModel.resumeDownload() }) { Text("继续") }
+                            } else {
+                                OutlinedButton(onClick = { viewModel.pauseDownload() }, enabled = isDownloadingPhase) { Text("暂停") }
+                            }
+                            TextButton(
+                                onClick = { viewModel.cancelDownload() },
+                                enabled = isDownloadingPhase,
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) { Text("取消") }
                         }
                     }
                 }
@@ -365,6 +402,7 @@ fun HomeScreen(
                         Button(onClick = { viewModel.reset() }, modifier = Modifier.padding(top = 24.dp)) { Text("完成") }
                     }
                 }
+
                 is HomeState.Error -> {
                     Column(modifier = Modifier.padding(top = 100.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("❌ ${currentState.errorMsg}", color = MaterialTheme.colorScheme.error)
@@ -376,6 +414,9 @@ fun HomeScreen(
     }
 }
 
+// =========================================================
+// 辅助组件：SubtitleDialog (字幕弹窗)
+// =========================================================
 @Composable
 fun SubtitleDialog(
     currentState: HomeState.ChoiceSelect,
@@ -486,22 +527,44 @@ fun SubtitleDialog(
 
 fun Modifier.scale(scale: Float): Modifier = this.then(Modifier.graphicsLayer(scaleX = scale, scaleY = scale))
 
+// =========================================================
+// 辅助组件：AccountItem (账号行项)
+// =========================================================
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AccountItem(user: UserEntity, isCurrent: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onDelete: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AsyncImage(model = user.face, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant))
+        AsyncImage(
+            model = user.face,
+            contentDescription = null,
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(user.name, style = MaterialTheme.typography.bodyLarge, color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            Text(
+                user.name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
         }
-        IconButton(onClick = onDelete) { Icon(Icons.Default.Close, contentDescription = "注销", tint = MaterialTheme.colorScheme.outline) }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Default.Close, contentDescription = "注销", tint = MaterialTheme.colorScheme.outline)
+        }
     }
 }
 
+// =========================================================
+// 辅助组件：QualitySelector (画质选择器)
+// =========================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QualitySelector(label: String, options: List<FormatOption>, selectedOption: FormatOption?, onOptionSelected: (FormatOption) -> Unit) {
@@ -514,7 +577,12 @@ fun QualitySelector(label: String, options: List<FormatOption>, selectedOption: 
             modifier = Modifier.fillMaxWidth().menuAnchor()
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option -> DropdownMenuItem(text = { Text(option.label) }, onClick = { onOptionSelected(option); expanded = false }) }
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = { onOptionSelected(option); expanded = false }
+                )
+            }
         }
     }
 }

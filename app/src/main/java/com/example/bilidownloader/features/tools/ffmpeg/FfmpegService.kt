@@ -1,4 +1,3 @@
-// 文件: features/ffmpeg/FfmpegService.kt
 package com.example.bilidownloader.features.ffmpeg
 
 import android.app.Notification
@@ -13,7 +12,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.example.bilidownloader.MyApplication
-import com.example.bilidownloader.R // 确保导入你的 R 文件
+import com.example.bilidownloader.R
 import kotlinx.coroutines.*
 
 /**
@@ -72,36 +71,37 @@ class FfmpegService : Service() {
     private fun startTask(inputUri: String, args: String, ext: String) {
         if (taskJob?.isActive == true) return // 已有任务在运行
 
-        // 1. 启动前台服务通知
-        val notification = buildNotification("FFmpeg 处理中...", 0)
+        // 1. 启动前台服务通知 (Ongoing = true, 用户无法划掉)
+        val notification = buildNotification("FFmpeg 准备中...", 0)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             startForeground(NOTIF_ID, notification)
         }
 
-        // 2. 获取 Repository 实例 (通过 Application 获取 DI 容器)
+        // 2. 获取 Repository 实例
         val repo = (application as MyApplication).container.ffmpegRepository
 
         // 3. 启动协程执行任务
         taskJob = serviceScope.launch {
             repo.executeCommand(inputUri, args, ext).collect { state ->
-                // 更新全局 Session
+                // 更新全局 Session 状态供 UI 观察
                 FfmpegSession.updateState(state)
 
-                // 更新通知栏
+                // 更新通知栏处理逻辑
                 when (state) {
                     is FfmpegTaskState.Running -> {
                         val progressInt = (state.progress * 100).toInt()
                         updateNotification("处理中: $progressInt%", progressInt)
                     }
                     is FfmpegTaskState.Success -> {
-                        updateNotification("处理完成", 100)
-                        stopForegroundService(removeNotification = false)
+                        // [修改点] 成功后：彻底移除通知并停止服务
+                        stopForegroundService(removeNotification = true)
                     }
                     is FfmpegTaskState.Error -> {
-                        updateNotification("处理失败: ${state.message}", 0)
-                        stopForegroundService(removeNotification = false)
+                        // [修改点] 失败后：彻底移除通知并停止服务
+                        // 错误信息由 UI 层负责向用户展示
+                        stopForegroundService(removeNotification = true)
                     }
                     else -> {}
                 }
@@ -111,10 +111,10 @@ class FfmpegService : Service() {
 
     private fun stopTask() {
         if (taskJob?.isActive == true) {
-            taskJob?.cancel() // 取消协程 -> 触发 Repository 的 awaitClose -> 触发 FFmpegKit.cancel
+            taskJob?.cancel() // 取消协程 -> 触发 FFmpegKit 的取消
             taskJob = null
         }
-        FfmpegSession.updateState(FfmpegTaskState.Idle) // 重置状态
+        FfmpegSession.updateState(FfmpegTaskState.Idle)
         stopForegroundService(removeNotification = true)
     }
 
@@ -124,8 +124,11 @@ class FfmpegService : Service() {
         } else {
             stopForeground(removeNotification)
         }
-        // 如果任务结束，释放 WakeLock 并停止服务
+
+        // 释放电源锁
         if (::wakeLock.isInitialized && wakeLock.isHeld) wakeLock.release()
+
+        // 销毁 Service
         stopSelf()
     }
 
@@ -137,25 +140,30 @@ class FfmpegService : Service() {
 
     private fun buildNotification(content: String, progress: Int): Notification {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("FFmpeg 终端")
+            .setContentTitle("视频合成中")
             .setContentText(content)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // 请确保图标存在
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOnlyAlertOnce(true)
-            .setOngoing(true)
+            .setOngoing(true) // 运行中不可被滑动删除
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
         if (progress in 0..100) {
             builder.setProgress(100, progress, false)
         } else {
-            builder.setProgress(0, 0, true) // 不确定进度
+            builder.setProgress(0, 0, true)
         }
 
         // 添加停止按钮
         val stopIntent = Intent(this, FfmpegService::class.java).apply { action = ACTION_STOP }
         val stopPendingIntent = android.app.PendingIntent.getService(
-            this, 0, stopIntent, android.app.PendingIntent.FLAG_IMMUTABLE
+            this, 0, stopIntent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            } else {
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            }
         )
-        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", stopPendingIntent)
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "取消任务", stopPendingIntent)
 
         return builder.build()
     }
