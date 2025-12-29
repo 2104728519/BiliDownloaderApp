@@ -37,6 +37,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,12 +47,12 @@ import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
+import com.example.bilidownloader.core.database.FfmpegPresetEntity
 import com.example.bilidownloader.di.AppViewModelProvider
 
 /**
  * FFmpeg 万能终端界面.
- *
- * 集成了媒体选择弹窗、动态权限申请、FFmpeg 命令实时预览与控制台输出。
+ * 集成了媒体选择、权限申请、命令执行、控制台输出以及预设管理系统。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,7 +65,9 @@ fun FfmpegScreen(
     val focusManager = LocalFocusManager.current
 
     // --- 状态控制 ---
-    var showBottomSheet by remember { mutableStateOf(false) }
+    var showMediaSheet by remember { mutableStateOf(false) } // 媒体选择弹窗
+    var showPresetSheet by remember { mutableStateOf(false) } // 预设列表弹窗
+    var showSaveDialog by remember { mutableStateOf(false) } // 保存预设弹窗
     val isRunning = uiState.taskState is FfmpegTaskState.Running
 
     // --- 权限请求 Launcher ---
@@ -72,7 +75,7 @@ fun FfmpegScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.values.any { it }) {
-            showBottomSheet = true
+            showMediaSheet = true
         } else {
             Toast.makeText(context, "需要存储权限才能读取媒体文件", Toast.LENGTH_SHORT).show()
         }
@@ -91,23 +94,32 @@ fun FfmpegScreen(
         }
 
         if (allGranted) {
-            showBottomSheet = true
+            showMediaSheet = true
         } else {
             permissionLauncher.launch(permissions)
         }
     }
 
-    // 监听任务状态变化，弹出提示
+    // 监听任务状态
     LaunchedEffect(uiState.taskState) {
         when (val state = uiState.taskState) {
-            is FfmpegTaskState.Success -> {
-                Toast.makeText(context, "处理完成！耗时: ${state.costTime}ms", Toast.LENGTH_LONG).show()
-            }
-            is FfmpegTaskState.Error -> {
-                Toast.makeText(context, "出错: ${state.message}", Toast.LENGTH_SHORT).show()
-            }
+            is FfmpegTaskState.Success -> Toast.makeText(context, "处理完成！耗时: ${state.costTime}ms", Toast.LENGTH_LONG).show()
+            is FfmpegTaskState.Error -> Toast.makeText(context, "出错: ${state.message}", Toast.LENGTH_SHORT).show()
             else -> {}
         }
+    }
+
+    // --- 保存预设弹窗 ---
+    if (showSaveDialog) {
+        SavePresetDialog(
+            currentArgs = uiState.arguments,
+            onDismiss = { showSaveDialog = false },
+            onConfirm = { name ->
+                viewModel.saveCurrentAsPreset(name)
+                showSaveDialog = false
+                Toast.makeText(context, "预设已保存", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 
     Scaffold(
@@ -117,16 +129,27 @@ fun FfmpegScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Terminal, null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("FFmpeg Terminal")
+                        Text("Terminal")
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
                 },
+                actions = {
+                    // [新增] 保存当前命令为预设
+                    IconButton(onClick = { showSaveDialog = true }, enabled = uiState.arguments.isNotBlank()) {
+                        Icon(Icons.Default.Save, contentDescription = "保存预设")
+                    }
+                    // [新增] 打开预设列表
+                    IconButton(onClick = { showPresetSheet = true }) {
+                        Icon(Icons.Default.Bookmarks, contentDescription = "预设列表")
+                    }
+                },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = Color(0xFF1E1E1E),
                     titleContentColor = Color(0xFF00FF00),
-                    navigationIconContentColor = Color.White
+                    navigationIconContentColor = Color.White,
+                    actionIconContentColor = Color.White
                 )
             )
         }
@@ -137,7 +160,7 @@ fun FfmpegScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // 1. Input Slot (文件选择区 - 传入 mediaInfo)
+            // 1. Input Slot
             FileSelectionCard(
                 fileName = uiState.inputFileName,
                 fileSize = uiState.inputFileSize,
@@ -148,23 +171,19 @@ fun FfmpegScreen(
 
             Divider(thickness = 8.dp, color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
 
-            // 2. Command Builder (命令构建区) - [修改] 传入新的 onExecute 逻辑
+            // 2. Command Builder
             CommandBuilderArea(
                 uiState = uiState,
                 onArgsChange = { viewModel.onArgumentsChanged(it) },
                 onExtChange = { viewModel.onExtensionChanged(it) },
                 onExecute = {
                     focusManager.clearFocus()
-                    if (isRunning) {
-                        viewModel.stopCommand()
-                    } else {
-                        viewModel.executeCommand()
-                    }
+                    if (isRunning) viewModel.stopCommand() else viewModel.executeCommand()
                 },
                 isRunning = isRunning
             )
 
-            // 3. Terminal Console (日志控制台)
+            // 3. Terminal Console
             TerminalConsole(
                 taskState = uiState.taskState,
                 modifier = Modifier.weight(1f).fillMaxWidth()
@@ -172,84 +191,111 @@ fun FfmpegScreen(
         }
 
         // --- 媒体选择底部弹窗 ---
-        if (showBottomSheet) {
+        if (showMediaSheet) {
             MediaPickerBottomSheet(
                 viewModel = viewModel,
-                onDismiss = { showBottomSheet = false },
+                onDismiss = { showMediaSheet = false },
                 onMediaSelected = { media ->
                     viewModel.onFileSelected(media.uri)
-                    showBottomSheet = false
+                    showMediaSheet = false
+                }
+            )
+        }
+
+        // --- 预设列表底部弹窗 ---
+        if (showPresetSheet) {
+            PresetListBottomSheet(
+                viewModel = viewModel,
+                onDismiss = { showPresetSheet = false },
+                onApply = { preset ->
+                    viewModel.applyPreset(preset)
+                    showPresetSheet = false
+                    Toast.makeText(context, "已加载预设: ${preset.name}", Toast.LENGTH_SHORT).show()
                 }
             )
         }
     }
 }
 
-/**
- * 组件：媒体选择底部弹窗
- */
+// region --- 预设相关组件 ---
+
+@Composable
+fun SavePresetDialog(
+    currentArgs: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("保存为预设") },
+        text = {
+            Column {
+                Text("将当前参数保存以便日后快速调用。", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("预设名称") },
+                    placeholder = { Text("例如：提取音频MP3") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("预览: ${currentArgs.take(50)}...", style = MaterialTheme.typography.labelSmall, color = Color.Gray, maxLines = 1)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(name) },
+                enabled = name.isNotBlank()
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MediaPickerBottomSheet(
+fun PresetListBottomSheet(
     viewModel: FfmpegViewModel,
     onDismiss: () -> Unit,
-    onMediaSelected: (LocalMedia) -> Unit
+    onApply: (FfmpegPresetEntity) -> Unit
 ) {
-    val mediaList by viewModel.localMediaList.collectAsState()
-    val isLoading by viewModel.isMediaLoading.collectAsState()
-    var selectedTab by remember { mutableStateOf(0) } // 0=Video, 1=Audio
-
-    LaunchedEffect(selectedTab) {
-        viewModel.loadLocalMedia(isVideo = (selectedTab == 0))
-    }
+    val presetList by viewModel.presetList.collectAsState()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color(0xFF1E1E1E)
+        containerColor = Color(0xFF1E1E1E) // 深色背景保持风格统一
     ) {
-        Column(modifier = Modifier.fillMaxHeight(0.7f).padding(bottom = 16.dp)) {
-            TabRow(
-                selectedTabIndex = selectedTab,
-                containerColor = Color(0xFF1E1E1E),
-                contentColor = Color(0xFF00FF00),
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                        color = Color(0xFF00FF00)
-                    )
-                }
-            ) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 },
-                    text = { Text("视频", color = if(selectedTab == 0) Color(0xFF00FF00) else Color.Gray) })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                    text = { Text("音频", color = if(selectedTab == 1) Color(0xFF00FF00) else Color.Gray) })
-            }
+        Column(modifier = Modifier.fillMaxHeight(0.6f).padding(horizontal = 16.dp)) {
+            Text(
+                text = "指令预设",
+                style = MaterialTheme.typography.titleLarge,
+                color = Color(0xFF00FF00), // 绿色标题
+                modifier = Modifier.padding(vertical = 16.dp)
+            )
 
-            Box(modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color(0xFF00FF00))
-                } else if (mediaList.isEmpty()) {
-                    Text("暂无媒体文件", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
-                } else {
-                    if (selectedTab == 0) {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(4.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(mediaList) { media ->
-                                VideoGridItem(media) { onMediaSelected(media) }
-                            }
-                        }
-                    } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(mediaList) { media ->
-                                AudioListItem(media) { onMediaSelected(media) }
-                            }
-                        }
+            if (presetList.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("暂无预设，请先在终端保存命令", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(presetList, key = { it.id }) { preset ->
+                        PresetItem(
+                            preset = preset,
+                            onApply = { onApply(preset) },
+                            onDelete = { viewModel.deletePreset(preset) }
+                        )
                     }
                 }
             }
@@ -257,78 +303,58 @@ fun MediaPickerBottomSheet(
     }
 }
 
-/**
- * 视频网格项组件：带视频帧预览
- */
 @Composable
-fun VideoGridItem(media: LocalMedia, onClick: () -> Unit) {
-    val context = LocalContext.current
-
-    Box(
-        modifier = Modifier
-            .aspectRatio(1f)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.DarkGray)
-            .clickable(onClick = onClick)
+fun PresetItem(
+    preset: FfmpegPresetEntity,
+    onApply: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D)),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onApply)
     ) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(media.uri)
-                .decoderFactory { result, options, _ ->
-                    VideoFrameDecoder(result.source, options)
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(preset.name, style = MaterialTheme.typography.titleMedium, color = Color.White)
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 后缀名徽章
+                    Surface(
+                        color = Color(0xFF00FF00).copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Text(
+                            text = preset.outputExtension,
+                            color = Color(0xFF00FF00),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+                    Text(
+                        text = preset.commandArgs,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.LightGray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                .videoFrameMillis(1000)
-                .crossfade(true)
-                .build(),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+            }
 
-        Text(
-            text = formatDuration(media.duration),
-            color = Color.White,
-            fontSize = 10.sp,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .background(Color.Black.copy(alpha = 0.6f))
-                .padding(horizontal = 4.dp, vertical = 2.dp)
-        )
-    }
-}
-
-@Composable
-fun AudioListItem(media: LocalMedia, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(Icons.Default.AudioFile, null, tint = Color(0xFF00FF00), modifier = Modifier.size(32.dp))
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(media.name, color = Color.White, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "${formatDuration(media.duration)} | ${(media.size / 1024 / 1024.0).let { "%.1f MB".format(it) }}",
-                color = Color.Gray,
-                style = MaterialTheme.typography.bodySmall
-            )
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "删除", tint = Color.Gray)
+            }
         }
     }
 }
 
-private fun formatDuration(ms: Long): String {
-    val seconds = ms / 1000
-    return "%02d:%02d".format(seconds / 60, seconds % 60)
-}
+// endregion
 
-// --- 基础组件 ---
+// region --- 核心组件 (CommandBuilder, Console, MediaPicker) ---
 
-/**
- * 文件选择卡片：支持点击选择和点击复制 JSON 信息
- */
 @Composable
 private fun FileSelectionCard(
     fileName: String,
@@ -348,7 +374,7 @@ private fun FileSelectionCard(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 左侧可点击区域：图标 + 文本
+            // 左侧可点击区域
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -380,7 +406,7 @@ private fun FileSelectionCard(
                 }
             }
 
-            // 右侧功能按钮
+            // 右侧信息按钮
             if (fileName.isNotEmpty()) {
                 IconButton(
                     onClick = {
@@ -433,15 +459,11 @@ private fun CommandBuilderArea(
             placeholder = { Text("-c:v libx264 ...") },
             enabled = !isRunning,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            maxLines = 5,
+            minLines = 1, maxLines = 5,
             trailingIcon = {
                 if (uiState.arguments.isNotEmpty() && !isRunning) {
                     IconButton(onClick = { onArgsChange("") }) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "清空参数",
-                            tint = Color.Gray
-                        )
+                        Icon(Icons.Default.Close, "清空", tint = Color.Gray)
                     }
                 }
             }
@@ -459,15 +481,12 @@ private fun CommandBuilderArea(
                 label = { Text("后缀") }
             )
             Spacer(modifier = Modifier.weight(1f))
-
-            // [修改] 运行/停止 按钮逻辑
             Button(
                 onClick = onExecute,
-                enabled = uiState.inputFileUri != null, // 只要选了文件就能点（为了停止）
+                enabled = uiState.inputFileUri != null,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isRunning) Color(0xFFB00020) else Color(0xFF1E1E1E), // 运行时红色
-                    contentColor = Color.White,
-                    disabledContainerColor = Color.Gray
+                    containerColor = if (isRunning) Color(0xFFB00020) else Color(0xFF1E1E1E),
+                    contentColor = Color.White
                 ),
                 shape = RoundedCornerShape(4.dp)
             ) {
@@ -490,7 +509,6 @@ private fun TerminalConsole(taskState: FfmpegTaskState, modifier: Modifier = Mod
     val listState = rememberLazyListState()
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
-
     val logs = when (taskState) {
         is FfmpegTaskState.Running -> taskState.logs
         is FfmpegTaskState.Success -> taskState.logs
@@ -545,20 +563,73 @@ private fun TerminalConsole(taskState: FfmpegTaskState, modifier: Modifier = Mod
                         clipboardManager.setText(AnnotatedString(fullLog))
                         Toast.makeText(context, "完整日志已复制", Toast.LENGTH_SHORT).show()
                     },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .size(32.dp)
-                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(32.dp).background(Color.White.copy(0.1f), RoundedCornerShape(4.dp))
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "复制日志",
-                        tint = Color.LightGray,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    Icon(Icons.Default.ContentCopy, "复制", tint = Color.LightGray, modifier = Modifier.size(16.dp))
                 }
             }
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MediaPickerBottomSheet(viewModel: FfmpegViewModel, onDismiss: () -> Unit, onMediaSelected: (LocalMedia) -> Unit) {
+    val mediaList by viewModel.localMediaList.collectAsState()
+    val isLoading by viewModel.isMediaLoading.collectAsState()
+    var selectedTab by remember { mutableStateOf(0) }
+    LaunchedEffect(selectedTab) { viewModel.loadLocalMedia(selectedTab == 0) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = Color(0xFF1E1E1E)) {
+        Column(modifier = Modifier.fillMaxHeight(0.7f).padding(bottom = 16.dp)) {
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = Color(0xFF1E1E1E),
+                contentColor = Color(0xFF00FF00),
+                indicator = { TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(it[selectedTab]), color = Color(0xFF00FF00)) }
+            ) {
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("视频", color = if(selectedTab==0) Color(0xFF00FF00) else Color.Gray) })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("音频", color = if(selectedTab==1) Color(0xFF00FF00) else Color.Gray) })
+            }
+            Box(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                if (isLoading) CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color(0xFF00FF00))
+                else if (mediaList.isEmpty()) Text("暂无媒体文件", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
+                else {
+                    if (selectedTab == 0) {
+                        LazyVerticalGrid(GridCells.Fixed(3), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            items(mediaList) { VideoGridItem(it) { onMediaSelected(it) } }
+                        }
+                    } else {
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            items(mediaList) { AudioListItem(it) { onMediaSelected(it) } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VideoGridItem(media: LocalMedia, onClick: () -> Unit) {
+    Box(modifier = Modifier.aspectRatio(1f).clip(RoundedCornerShape(8.dp)).background(Color.DarkGray).clickable(onClick = onClick)) {
+        AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(media.uri).decoderFactory { result, options, _ -> VideoFrameDecoder(result.source, options) }.videoFrameMillis(1000).crossfade(true).build(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Text(formatDuration(media.duration), color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black.copy(0.6f)).padding(horizontal = 4.dp, vertical = 2.dp))
+    }
+}
+
+@Composable
+fun AudioListItem(media: LocalMedia, onClick: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.AudioFile, null, tint = Color(0xFF00FF00), modifier = Modifier.size(32.dp))
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Text(media.name, color = Color.White, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
+            Text("${formatDuration(media.duration)} | ${(media.size/1024/1024.0).let{"%.1f MB".format(it)}}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+private fun formatDuration(ms: Long) = "%02d:%02d".format(ms / 1000 / 60, ms / 1000 % 60)
+
+// endregion
