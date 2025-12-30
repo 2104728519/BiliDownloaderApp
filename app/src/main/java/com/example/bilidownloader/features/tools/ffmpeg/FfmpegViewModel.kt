@@ -117,28 +117,22 @@ class FfmpegViewModel(
 
     // endregion
 
-    // region --- [新增] 导入导出逻辑 ---
+    // region --- 导入导出逻辑 ---
 
-    /**
-     * 导出所有预设为 JSON 文件并保存至下载目录
-     */
     fun exportPresets() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // 1. 获取当前所有预设
                 val currentList = presetDao.getAllPresets().first()
                 if (currentList.isEmpty()) {
                     showToast("没有预设可导出")
                     return@launch
                 }
 
-                // 2. 转换为传输模型并序列化
                 val exportList = currentList.map {
                     PresetExportModel(it.name, it.commandArgs, it.outputExtension)
                 }
                 val jsonString = Gson().toJson(exportList)
 
-                // 3. 调用 StorageHelper 保存文件
                 val fileName = "ffmpeg_presets_${System.currentTimeMillis()}.json"
                 val success = StorageHelper.saveJsonToDownloads(getApplication(), jsonString, fileName)
 
@@ -152,24 +146,16 @@ class FfmpegViewModel(
         }
     }
 
-    /**
-     * 从 URL 远程导入预设
-     */
     fun importPresetsFromUrl(url: String) {
         if (url.isBlank()) return
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 showToast("正在下载预设文件...")
-
-                // 1. 通过 repository 下载文本
                 val jsonString = repository.fetchTextFromUrl(url)
-
-                // 2. 使用 GSON 解析
                 val type = object : TypeToken<List<PresetExportModel>>() {}.type
                 val importList: List<PresetExportModel> = Gson().fromJson(jsonString, type)
 
-                // 3. 查重入库
                 val currentList = presetDao.getAllPresets().first()
                 var successCount = 0
                 var skipCount = 0
@@ -189,9 +175,7 @@ class FfmpegViewModel(
                         skipCount++
                     }
                 }
-
                 showToast("导入完成: 新增 $successCount 个，跳过重复 $skipCount 个")
-
             } catch (e: Exception) {
                 e.printStackTrace()
                 showToast("导入失败: ${e.message}")
@@ -199,9 +183,6 @@ class FfmpegViewModel(
         }
     }
 
-    /**
-     * [新增] 获取预设 JSON 字符串 (用于复制到剪贴板)
-     */
     fun getPresetsJson(onResult: (String?) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -210,12 +191,10 @@ class FfmpegViewModel(
                     withContext(Dispatchers.Main) { onResult(null) }
                     return@launch
                 }
-
                 val exportList = currentList.map {
                     PresetExportModel(it.name, it.commandArgs, it.outputExtension)
                 }
                 val jsonString = Gson().toJson(exportList)
-
                 withContext(Dispatchers.Main) { onResult(jsonString) }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -223,6 +202,7 @@ class FfmpegViewModel(
             }
         }
     }
+
     private suspend fun showToast(msg: String) {
         withContext(Dispatchers.Main) {
             Toast.makeText(getApplication(), msg, Toast.LENGTH_SHORT).show()
@@ -231,7 +211,7 @@ class FfmpegViewModel(
 
     // endregion
 
-    // region --- 媒体选择与执行逻辑 (保持不变) ---
+    // region --- 媒体选择与执行逻辑 ---
 
     fun loadLocalMedia(isVideo: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -396,4 +376,22 @@ class FfmpegViewModel(
         return if (mb >= 1) String.format("%.1f MB", mb) else "${size / 1024} KB"
     }
     // endregion
+
+    /**
+     * 页面销毁时的清理逻辑
+     * * 只有当任务已经处于“终结状态”（成功或失败）时，才重置全局 FfmpegSession 为 Idle。
+     * 如果任务仍在 Running 或即将开始，则保留状态，以支持用户返回页面后继续查看进度。
+     */
+    override fun onCleared() {
+        super.onCleared()
+
+        // 获取当前全局单例中的任务状态
+        val currentState = FfmpegSession.taskState.value
+
+        // 逻辑：如果任务已经结束（Success 或 Error），则重置状态。
+        // 这样下次进入 FFmpeg 功能页时，UI 会初始化为 Idle 干净状态。
+        if (currentState is FfmpegTaskState.Success || currentState is FfmpegTaskState.Error) {
+            FfmpegSession.reset()
+        }
+    }
 }
