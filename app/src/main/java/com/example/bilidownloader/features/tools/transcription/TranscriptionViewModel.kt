@@ -1,30 +1,37 @@
 package com.example.bilidownloader.features.tools.transcription
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.model.TranscriptionInput
 import com.example.bilidownloader.core.model.TranscriptionRequest
-import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.util.ConsoleScraper
 import com.example.bilidownloader.core.util.OssManager
+import com.example.bilidownloader.core.util.StorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URLDecoder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 音频转写 ViewModel.
  *
  * 核心流程：
- * 1. **文件上传**：因为阿里云听悟 API 仅支持公网 URL，需先将本地文件上传至 OSS 获取签名链接。
+ * 1. **文件上传**：因阿里云 API 需公网 URL，先将本地文件上传至 OSS 获取签名链接。
  * 2. **异步提交**：调用 API 提交转写任务。
  * 3. **状态轮询**：循环检查任务状态 (PENDING -> RUNNING -> SUCCEEDED)。
  * 4. **配额爬取**：利用 [ConsoleScraper] 爬取用户剩余免费额度。
+ * 5. **导出结果**：利用 [StorageHelper] 将文本结果保存至本地。
  */
 class TranscriptionViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -54,6 +61,9 @@ class TranscriptionViewModel(application: Application) : AndroidViewModel(applic
         loadUsage()
     }
 
+    /**
+     * 加载当前用户的阿里云听悟使用额度
+     */
     fun loadUsage() {
         viewModelScope.launch {
             _usageState.value = UsageState.Loading
@@ -75,6 +85,10 @@ class TranscriptionViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /**
+     * 开始执行音频转写任务
+     * @param pathStr 音频文件的本地路径
+     */
     fun startTranscription(pathStr: String) {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = TransState.Processing("正在准备文件...")
@@ -133,6 +147,53 @@ class TranscriptionViewModel(application: Application) : AndroidViewModel(applic
             } catch (e: Exception) {
                 e.printStackTrace()
                 _uiState.value = TransState.Error(e.message ?: "未知错误")
+            }
+        }
+    }
+
+    /**
+     * [修改] 导出转写结果为 TXT 文件并保存到公共下载目录
+     * 逻辑：移除原文件名后缀，强制改为 .txt
+     *
+     * @param content 转写的文案内容
+     * @param originalName 原始文件名 (例如: "Lecture_01.mp3")
+     */
+    fun exportTranscript(content: String, originalName: String) {
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+
+            // 1. 处理文件名：移除原后缀，添加 .txt
+            // 如果 originalName 为空，则回退到带时间戳的默认名
+            val validName = if (originalName.isBlank()) {
+                val timeStamp =
+                    SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                "Transcription_$timeStamp"
+            } else {
+                originalName
+            }
+
+            // 移除最后一个点之后的所有内容并拼接 .txt
+            val nameWithoutExt = validName.substringBeforeLast('.')
+            val finalFileName = "$nameWithoutExt.txt"
+
+            // 2. 调用 StorageHelper 在 IO 线程执行保存
+            val success = StorageHelper.saveTextToDownloads(context, content, finalFileName)
+
+            // 3. 回到主线程进行 UI 反馈
+            withContext(Dispatchers.Main) {
+                if (success) {
+                    Toast.makeText(
+                        context,
+                        "已保存: Downloads/BiliDownloader/Transcription/$finalFileName",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        context,
+                        "导出失败，请检查存储权限或空间",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     }

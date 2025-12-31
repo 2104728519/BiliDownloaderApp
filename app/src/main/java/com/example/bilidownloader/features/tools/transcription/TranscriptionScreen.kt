@@ -32,7 +32,7 @@ import java.net.URLDecoder
  * 1. 展示文件名和用量统计 (UsageCard)。
  * 2. 用户点击“开始” -> 上传文件到 OSS -> 提交转写任务。
  * 3. 轮询任务状态 (Processing)。
- * 4. 成功后显示结果文本框 (Success)，支持复制。
+ * 4. 成功后显示结果文本框 (Success)，支持复制和导出为 TXT。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +45,7 @@ fun TranscriptionScreen(
     val usageState by viewModel.usageState.collectAsState()
     val context = LocalContext.current
 
+    // 获取文件名 (例如: "演讲录音.m4a")
     val fileName = remember(filePath) {
         try {
             File(URLDecoder.decode(filePath, "UTF-8")).name
@@ -73,11 +74,13 @@ fun TranscriptionScreen(
             UsageCard(usageState, onRefresh = { viewModel.loadUsage() })
             Spacer(Modifier.height(16.dp))
 
-            // 成功状态需要填满屏幕以显示大量文本，其他状态可滚动
+            // 成功状态需要填满屏幕以显示大量文本
             if (isSuccessState) {
                 SuccessState(
                     text = (uiState as TranscriptionViewModel.TransState.Success).text,
-                    onTextChange = { /* 只读展示，或者 viewModel 更新 */ }
+                    onTextChange = { /* 可选：同步更新 ViewModel 中的文本 */ },
+                    // [修改处] 将当前界面持有的 fileName 传给 ViewModel
+                    onExport = { content -> viewModel.exportTranscript(content, fileName) }
                 )
             } else {
                 Column(
@@ -98,6 +101,9 @@ fun TranscriptionScreen(
     }
 }
 
+/**
+ * 用量统计卡片，支持配置凭证
+ */
 @Composable
 private fun UsageCard(
     usageState: TranscriptionViewModel.UsageState,
@@ -106,14 +112,15 @@ private fun UsageCard(
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // 从 CookieManager 加载上次保存的凭证
     var cookieInput by remember { mutableStateOf(CookieManager.getAliyunConsoleCookie(context) ?: "") }
     var tokenInput by remember { mutableStateOf(CookieManager.getAliyunConsoleSecToken(context) ?: "") }
 
     Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(2.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -129,7 +136,10 @@ private fun UsageCard(
                     val progress = (usageState.usedMinutes / usageState.totalMinutes).toFloat()
                     LinearProgressIndicator(
                         progress = { progress },
-                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(MaterialTheme.shapes.small)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(MaterialTheme.shapes.small)
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -181,6 +191,9 @@ private fun UsageCard(
     }
 }
 
+/**
+ * 闲置状态
+ */
 @Composable
 private fun IdleState(fileName: String, onStart: () -> Unit) {
     Spacer(modifier = Modifier.height(48.dp))
@@ -189,15 +202,19 @@ private fun IdleState(fileName: String, onStart: () -> Unit) {
     Text("已选择文件", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
     Text(fileName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
     Spacer(modifier = Modifier.height(48.dp))
-    Button(onClick = onStart, Modifier.fillMaxWidth().height(50.dp)) {
+    Button(onClick = onStart,
+        Modifier
+            .fillMaxWidth()
+            .height(50.dp)) {
         Icon(Icons.Default.CloudUpload, null)
         Spacer(Modifier.width(8.dp))
         Text("开始上传并转写")
     }
-    Spacer(modifier = Modifier.height(16.dp))
-    Text("提示：音频将上传至阿里云进行处理", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
 }
 
+/**
+ * 转写进行中
+ */
 @Composable
 private fun ProcessingState(state: TranscriptionViewModel.TransState.Processing) {
     Spacer(modifier = Modifier.height(100.dp))
@@ -206,24 +223,27 @@ private fun ProcessingState(state: TranscriptionViewModel.TransState.Processing)
     Text(state.step, style = MaterialTheme.typography.bodyLarge)
 }
 
+/**
+ * 错误状态
+ */
 @Composable
 private fun ErrorState(state: TranscriptionViewModel.TransState.Error, onRetry: () -> Unit) {
     Spacer(modifier = Modifier.height(100.dp))
     Icon(Icons.Default.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(60.dp))
     Spacer(Modifier.height(16.dp))
-    Text("转写失败", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.error)
-    Spacer(Modifier.height(8.dp))
-    Text(state.msg, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-    Spacer(Modifier.height(32.dp))
-    Button(onClick = onRetry) {
-        Icon(Icons.Default.Refresh, null)
-        Spacer(Modifier.width(8.dp))
-        Text("重试")
-    }
+    Text(state.msg, textAlign = TextAlign.Center)
+    Button(onClick = onRetry) { Text("重试") }
 }
 
+/**
+ * 转写成功状态组件
+ */
 @Composable
-private fun ColumnScope.SuccessState(text: String, onTextChange: (String) -> Unit) {
+private fun ColumnScope.SuccessState(
+    text: String,
+    onTextChange: (String) -> Unit,
+    onExport: (String) -> Unit
+) {
     val context = LocalContext.current
     var currentText by remember(text) { mutableStateOf(text) }
 
@@ -233,12 +253,22 @@ private fun ColumnScope.SuccessState(text: String, onTextChange: (String) -> Uni
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("转写结果：", style = MaterialTheme.typography.titleMedium)
-        IconButton(onClick = {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("Transcription", currentText))
-            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
-        }) {
-            Icon(Icons.Default.ContentCopy, "复制")
+
+        Row {
+            // 导出按钮
+            IconButton(onClick = { onExport(currentText) }) {
+                Icon(Icons.Default.SaveAlt, "导出为TXT")
+            }
+
+            // 复制按钮
+            IconButton(onClick = {
+                val clipboard =
+                    context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Transcription", currentText))
+                Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+            }) {
+                Icon(Icons.Default.ContentCopy, "复制")
+            }
         }
     }
 
@@ -250,7 +280,9 @@ private fun ColumnScope.SuccessState(text: String, onTextChange: (String) -> Uni
             currentText = it
             onTextChange(it)
         },
-        modifier = Modifier.weight(1f).fillMaxWidth(),
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxWidth(),
         textStyle = MaterialTheme.typography.bodyLarge
     )
 }

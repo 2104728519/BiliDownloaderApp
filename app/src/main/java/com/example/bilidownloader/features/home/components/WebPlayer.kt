@@ -63,10 +63,7 @@ fun BiliWebPlayer(bvid: String) {
                     // 伪装 UA (保持不变)
                     userAgentString = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
-                    // 可选：如果是深色模式，强制网页也深色（B站播放器通常自带深色，这个可能不是必须的，但加上更稳）
-                    // if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    //     forceDark = WebSettings.FORCE_DARK_ON
-                    // }
+
                 }
 
                 webChromeClient = WebChromeClient()
