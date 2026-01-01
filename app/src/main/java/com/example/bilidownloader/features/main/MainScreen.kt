@@ -28,10 +28,12 @@ import com.example.bilidownloader.features.tools.transcription.TranscriptionScre
 import java.net.URLEncoder
 
 /**
- * 全局主容器 (Scaffold).
+ * 全局主容器 (Scaffold) 与路由配置中心.
  *
- * 包含底部导航栏 (Bottom Navigation) 和路由控制器 (NavHost)。
- * 定义了整个应用的所有页面路由规则和参数传递方式。
+ * 职责：
+ * 1. 维护底部导航栏 (Bottom Navigation) 的状态与切换.
+ * 2. 定义全 App 的路由表 (NavGraph).
+ * 3. 处理页面间的参数传递 (特别是路径和标题的编码传输).
  */
 @Composable
 fun MainScreen() {
@@ -43,7 +45,7 @@ fun MainScreen() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
 
-                // 首页 Tab
+                // --- 首页 Tab ---
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Home, contentDescription = null) },
                     label = { Text("首页") },
@@ -57,10 +59,11 @@ fun MainScreen() {
                     }
                 )
 
-                // 工具 Tab
+                // --- 工具 Tab ---
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Build, contentDescription = null) },
                     label = { Text("工具") },
+                    // 只要是 tools 开头或特定工具页面，都高亮该 Tab
                     selected = currentRoute?.startsWith("tools") == true ||
                             currentRoute?.startsWith("ffmpeg_terminal") == true,
                     onClick = {
@@ -79,14 +82,21 @@ fun MainScreen() {
             startDestination = "home",
             modifier = Modifier.padding(innerPadding)
         ) {
-            // region --- Home 导航 ---
+            // ========================================================================
+            // Region: 首页模块
+            // ========================================================================
 
             composable("home") {
                 HomeScreen(
-                    onNavigateToTranscribe = { path ->
-                        // 路径包含特殊字符，需 URL 编码
+                    // [关键修改] 接收 path 和 title 两个参数
+                    onNavigateToTranscribe = { path, title ->
+                        // URL 编码防止特殊字符 (如 / : ?) 破坏路由结构
                         val encodedPath = URLEncoder.encode(path, "UTF-8")
-                        navController.navigate("transcription/$encodedPath")
+                        val encodedTitle =
+                            if (title.isNotEmpty()) URLEncoder.encode(title, "UTF-8") else ""
+
+                        // 路由跳转：带上 title 参数
+                        navController.navigate("transcription/$encodedPath?title=$encodedTitle")
                     },
                     onNavigateToLogin = {
                         navController.navigate("login")
@@ -100,29 +110,28 @@ fun MainScreen() {
                 )
             }
 
-            // endregion
+            // ========================================================================
+            // Region: 工具模块
+            // ========================================================================
 
-            // region --- Tools 导航 ---
-
-            // 工具箱入口页
+            // 工具箱主页
             composable("tools") {
                 ToolsScreen(
                     onNavigateToAudioCrop = { navController.navigate("audio_picker") },
                     onNavigateToTranscription = { navController.navigate("audio_picker_transcribe") },
                     onNavigateToAiComment = { navController.navigate("ai_comment") },
-                    onNavigateToFfmpeg = { navController.navigate("ffmpeg_terminal") } // 导航至终端
+                    onNavigateToFfmpeg = { navController.navigate("ffmpeg_terminal") }
                 )
             }
 
-            // AI 评论助手
+            // AI 评论生成器
             composable("ai_comment") {
                 AiCommentScreen(
                     onBack = { navController.popBackStack() }
                 )
             }
 
-            // FFmpeg 万能终端
-            // 支持可选参数 args (由 preset_args 映射)，用于接收预设指令
+            // FFmpeg 万能终端 (支持预设参数 args)
             composable(
                 route = "ffmpeg_terminal?args={args}",
                 arguments = listOf(
@@ -133,13 +142,14 @@ fun MainScreen() {
                     }
                 )
             ) {
-                // ViewModel 会通过 SavedStateHandle 自动获取 key 为 "args" 的值
                 FfmpegScreen(
                     onBack = { navController.popBackStack() }
                 )
             }
 
-            // 音频选择 (剪辑用)
+            // --- 音频剪辑流程 ---
+
+            // 1. 选择音频 (剪辑用)
             composable("audio_picker") {
                 val context = LocalContext.current
                 AudioPickerScreen(
@@ -157,6 +167,7 @@ fun MainScreen() {
                 )
             }
 
+            // 2. 剪辑界面
             composable(
                 route = "audio_crop/{uri}",
                 arguments = listOf(navArgument("uri") { type = NavType.StringType })
@@ -168,18 +179,22 @@ fun MainScreen() {
                 )
             }
 
-            // 音频选择 (转写用)
+            // --- 语音转写流程 ---
+
+            // 1. 选择音频 (转写用)
             composable("audio_picker_transcribe") {
                 val context = LocalContext.current
                 AudioPickerScreen(
                     onBack = { navController.popBackStack() },
                     onAudioSelected = { uri ->
+                        // 创建临时文件
                         val tempName = "trans_input_${System.currentTimeMillis()}.mp3"
                         val cacheFile = StorageHelper.copyUriToCache(context, uri, tempName)
 
                         if (cacheFile != null) {
                             val encodedPath = URLEncoder.encode(cacheFile.absolutePath, "UTF-8")
-                            navController.navigate("transcription/$encodedPath")
+                            // 从文件管理器选择的音频没有 B 站标题，title 传空
+                            navController.navigate("transcription/$encodedPath?title=")
                         } else {
                             Toast.makeText(context, "文件读取失败", Toast.LENGTH_SHORT).show()
                         }
@@ -187,18 +202,28 @@ fun MainScreen() {
                 )
             }
 
+            // 2. 转写界面
+            //  路由增加了可选参数 ?title={title}
             composable(
-                route = "transcription/{path}",
-                arguments = listOf(navArgument("path") { type = NavType.StringType })
+                route = "transcription/{path}?title={title}",
+                arguments = listOf(
+                    navArgument("path") { type = NavType.StringType },
+                    navArgument("title") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = "" // 默认值为空字符串
+                    }
+                )
             ) { backStackEntry ->
                 val path = backStackEntry.arguments?.getString("path") ?: ""
+                val title = backStackEntry.arguments?.getString("title") ?: ""
+
                 TranscriptionScreen(
                     filePath = path,
+                    originalTitle = title, // 将标题传递给 UI
                     onBack = { navController.popBackStack() }
                 )
             }
-
-            // endregion
         }
     }
 }

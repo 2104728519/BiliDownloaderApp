@@ -151,7 +151,7 @@ fun FfmpegScreen(
                             tint = Color(0xFF00FF00) // 绿色图标，极客风
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("FFmpeg Terminal")
+                        Text("Terminal")
                     }
                 },
                 navigationIcon = {
@@ -217,7 +217,9 @@ fun FfmpegScreen(
             // 3. Terminal Console (控制台区域，占据剩余空间)
             TerminalConsole(
                 taskState = uiState.taskState,
-                modifier = Modifier.weight(1f).fillMaxWidth()
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
             )
         }
 
@@ -282,10 +284,14 @@ fun PresetListBottomSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = Color(0xFF1E1E1E) // 保持深色风格
     ) {
-        Column(modifier = Modifier.fillMaxHeight(0.7f).padding(horizontal = 16.dp)) {
+        Column(modifier = Modifier
+            .fillMaxHeight(0.7f)
+            .padding(horizontal = 16.dp)) {
             // --- 标题与操作栏 ---
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -392,7 +398,9 @@ fun ImportUrlDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
 fun PresetItem(preset: FfmpegPresetEntity, onApply: () -> Unit, onDelete: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D)),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onApply)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onApply)
     ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -567,7 +575,9 @@ private fun CommandBuilderArea(
         OutlinedTextField(
             value = uiState.arguments,
             onValueChange = onArgsChange,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
             textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 16.sp),
             placeholder = { Text("-c:v copy ...") },
             enabled = !isRunning,
@@ -588,7 +598,9 @@ private fun CommandBuilderArea(
             OutlinedTextField(
                 value = uiState.outputExtension,
                 onValueChange = onExtChange,
-                modifier = Modifier.width(90.dp).padding(start = 8.dp),
+                modifier = Modifier
+                    .width(90.dp)
+                    .padding(start = 8.dp),
                 textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
                 singleLine = true,
                 enabled = !isRunning,
@@ -644,14 +656,19 @@ private fun TerminalConsole(taskState: FfmpegTaskState, modifier: Modifier = Mod
         if (taskState is FfmpegTaskState.Running) {
             LinearProgressIndicator(
                 progress = { if (taskState.progress < 0) 0f else taskState.progress },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp),
                 color = Color(0xFF00FF00),
                 trackColor = Color.Black
             )
         }
 
         // 日志区域
-        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(8.dp)) {
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1E1E1E))
+            .padding(8.dp)) {
             if (logs.isEmpty()) {
                 Text(
                     "> Initializing Terminal...",
@@ -724,7 +741,9 @@ fun MediaPickerBottomSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = Color(0xFF1E1E1E)
     ) {
-        Column(modifier = Modifier.fillMaxHeight(0.7f).padding(bottom = 16.dp)) {
+        Column(modifier = Modifier
+            .fillMaxHeight(0.7f)
+            .padding(bottom = 16.dp)) {
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = Color(0xFF1E1E1E),
@@ -740,7 +759,9 @@ fun MediaPickerBottomSheet(
                 Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("音频", color = if(selectedTab==1) Color(0xFF00FF00) else Color.Gray) })
             }
 
-            Box(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+            Box(modifier = Modifier
+                .fillMaxSize()
+                .padding(8.dp)) {
                 if (isLoading) {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color(0xFF00FF00))
                 } else if (mediaList.isEmpty()) {
