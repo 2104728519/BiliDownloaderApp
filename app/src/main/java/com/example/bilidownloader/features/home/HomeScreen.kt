@@ -3,6 +3,10 @@ package com.example.bilidownloader.features.home
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.ViewGroup
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,6 +37,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
@@ -53,8 +58,9 @@ import com.example.bilidownloader.features.home.components.HistoryItem
  * 1. 提供视频链接输入和解析功能。
  * 2. 展示解析后的视频详情和下载选项。
  * 3. 管理账号登录、切换和 Cookie 输入弹窗。
- * 4. [新增] 提供 Tab 切换，展示 "本地记录" 和 "账号记录" 两种历史列表。
+ * 4. 提供 Tab 切换，展示 "本地记录" 和 "账号记录" 两种历史列表。
  * 5. 控制 AI 字幕和语音转写流程的入口。
+ * 6. [新增] 提供用户使用手册入口。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,7 +87,7 @@ fun HomeScreen(
     }
 
     // --- 状态收集 ---
-    // 核心 UI 状态 (Idle, Analyzing, ChoiceSelect etc.)
+    // 核心 UI 状态
     val state by viewModel.state.collectAsState()
     // 用户与账号相关状态
     val currentUser by viewModel.currentUser.collectAsState()
@@ -89,7 +95,7 @@ fun HomeScreen(
     // 本地历史记录
     val historyList by viewModel.historyList.collectAsState()
 
-    // [新增] 云端历史记录相关状态
+    // 云端历史记录相关状态
     val historyTab by viewModel.historyTab.collectAsState()
     val cloudHistoryList by viewModel.cloudHistoryList.collectAsState()
     val isCloudHistoryLoading by viewModel.isCloudHistoryLoading.collectAsState()
@@ -105,6 +111,8 @@ fun HomeScreen(
     var showAccountDialog by remember { mutableStateOf(false) }
     var showManualCookieInput by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
+    // [新增] 手册弹窗控制
+    var showManualDialog by remember { mutableStateOf(false) }
 
     fun exitSelectionMode() {
         isSelectionMode = false
@@ -249,6 +257,11 @@ fun HomeScreen(
         )
     }
 
+    // 4. [新增] 用户手册弹窗
+    if (showManualDialog) {
+        ManualDialog(onDismiss = { showManualDialog = false })
+    }
+
     // =========================================================
     // 主界面 (Scaffold)
     // =========================================================
@@ -259,22 +272,26 @@ fun HomeScreen(
                 navigationIcon = {
                     if (state !is HomeState.Idle && !isSelectionMode) {
                         IconButton(onClick = { viewModel.reset() }) {
-                            Icon(
-                                Icons.Default.ArrowBack,
-                                "返回"
-                            )
+                            Icon(Icons.Default.ArrowBack, "返回")
                         }
                     }
                 },
                 actions = {
                     if (isSelectionMode) {
                         IconButton(onClick = { viewModel.deleteHistories(selectedItems.toList()); exitSelectionMode() }) {
-                            Icon(
-                                Icons.Default.Delete,
-                                "删除"
-                            )
+                            Icon(Icons.Default.Delete, "删除")
                         }
                     } else {
+                        // [新增] 帮助/使用手册按钮
+                        IconButton(onClick = { showManualDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.HelpOutline,
+                                contentDescription = "使用手册",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        // 账号按钮
                         IconButton(onClick = { showAccountDialog = true }) {
                             if (currentUser != null) {
                                 AsyncImage(
@@ -326,7 +343,7 @@ fun HomeScreen(
                     ) { Text("开始解析") }
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // --- [核心修改] 历史记录区域 ---
+                    // --- 历史记录区域 (Tab 切换) ---
                     TabRow(
                         selectedTabIndex = historyTab.ordinal,
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -466,9 +483,7 @@ fun HomeScreen(
                         val isDownloadingPhase = currentState.progress < 0.9f
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             if (currentState.info.contains("暂停")) Button(onClick = { viewModel.resumeDownload() }) {
-                                Text(
-                                    "继续"
-                                )
+                                Text("继续")
                             }
                             else OutlinedButton(
                                 onClick = { viewModel.pauseDownload() },
@@ -546,17 +561,15 @@ fun SubtitleDialog(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (currentState.subtitleData != null) IconButton(onClick = { viewModel.clearSubtitleState() }) {
-                            Icon(
-                                Icons.Default.ArrowBack,
-                                "重选"
-                            )
+                            Icon(Icons.Default.ArrowBack, "重选")
                         }
                         else {
                             Icon(
                                 Icons.Default.AutoAwesome,
                                 null,
                                 tint = MaterialTheme.colorScheme.primary
-                            ); Spacer(Modifier.width(8.dp))
+                            )
+                            Spacer(Modifier.width(8.dp))
                         }
                         Text(
                             if (currentState.subtitleData != null) "字幕详情" else "AI 摘要 & 字幕",
@@ -821,6 +834,58 @@ fun CloudHistoryItem(
     }
 }
 
+/**
+ * 用户手册查看器 (全屏弹窗).
+ * 内置在 HomeScreen 文件中以方便调用.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManualDialog(
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("用户使用手册") },
+                    actions = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "关闭")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                )
+            }
+        ) { padding ->
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                factory = { context ->
+                    WebView(context).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        settings.apply {
+                            javaScriptEnabled = true
+                            domStorageEnabled = true
+                            allowFileAccess = true
+                        }
+                        webViewClient = WebViewClient()
+                        webChromeClient = WebChromeClient()
+                        loadUrl("file:///android_asset/docs/index.html")
+                    }
+                }
+            )
+        }
+    }
+}
 
 /**
  * 辅助 Modifier，用于缩放 Composable.

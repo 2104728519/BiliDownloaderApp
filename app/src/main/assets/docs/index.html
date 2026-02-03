@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BiliDownloader 用户使用手册</title>
+    <style>
+        :root {
+            --primary-color: #00A1D6; /* B站蓝 */
+            --text-color: #333;
+            --bg-color: #f9f9f9;
+            --sidebar-width: 260px;
+            --code-bg: #f0f0f0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: #fff;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* 侧边栏导航 */
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: #fff;
+            border-right: 1px solid #eaeaea;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+            padding: 2rem 1.5rem;
+            top: 0;
+            left: 0;
+        }
+
+        .sidebar h2 {
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+            color: var(--primary-color);
+        }
+
+        .nav-list {
+            list-style: none;
+        }
+
+        .nav-list li {
+            margin-bottom: 0.8rem;
+        }
+
+        .nav-list a {
+            text-decoration: none;
+            color: #666;
+            font-size: 0.95rem;
+            display: block;
+            padding: 0.3rem 0;
+            transition: color 0.2s;
+        }
+
+        .nav-list a:hover, .nav-list a.active {
+            color: var(--primary-color);
+            font-weight: 500;
+        }
+
+        .sub-nav {
+            margin-left: 1rem;
+            margin-top: 0.5rem;
+            border-left: 2px solid #eee;
+            padding-left: 0.8rem;
+        }
+
+        /* 主内容区域 */
+        .main-content {
+            margin-left: var(--sidebar-width);
+            padding: 2rem 4rem;
+            max-width: 1000px;
+            width: 100%;
+        }
+
+        /* 排版样式 */
+        h1 {
+            font-size: 2.2rem;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid #eaeaea;
+            padding-bottom: 1rem;
+        }
+
+        .meta-info {
+            color: #888;
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+        }
+
+        h2 {
+            font-size: 1.6rem;
+            margin-top: 3rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #eaeaea;
+            scroll-margin-top: 1rem;
+        }
+
+        h3 {
+            font-size: 1.25rem;
+            margin-top: 1.5rem;
+            margin-bottom: 0.8rem;
+            color: #444;
+        }
+
+        p {
+            margin-bottom: 1rem;
+        }
+
+        ul, ol {
+            margin-bottom: 1rem;
+            padding-left: 1.5rem;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        /* 引用和提示框 */
+        blockquote {
+            border-left: 4px solid var(--primary-color);
+            background-color: #f0f7ff;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            color: #555;
+        }
+
+        code {
+            background-color: var(--code-bg);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: Consolas, Monaco, "Andale Mono", monospace;
+            font-size: 0.9em;
+            color: #c7254e;
+        }
+
+        /* FAQ 折叠面板 */
+        details {
+            margin-bottom: 1rem;
+            border: 1px solid #eee;
+            border-radius: 6px;
+            background: #fff;
+        }
+
+        details summary {
+            padding: 1rem;
+            cursor: pointer;
+            font-weight: 600;
+            list-style: none;
+            background-color: #f9f9f9;
+        }
+
+        details summary:hover {
+            background-color: #f0f0f0;
+        }
+
+        details[open] summary {
+            border-bottom: 1px solid #eee;
+        }
+
+        .faq-answer {
+            padding: 1rem;
+            color: #555;
+        }
+
+        /* 底部 */
+        footer {
+            margin-top: 4rem;
+            padding-top: 2rem;
+            border-top: 1px solid #eaeaea;
+            text-align: center;
+            color: #999;
+            font-size: 0.85rem;
+        }
+
+        /* 响应式适配 */
+        @media (max-width: 768px) {
+            .sidebar {
+                display: none; /* 移动端暂隐侧边栏，实际项目可做成汉堡菜单 */
+            }
+            .main-content {
+                margin-left: 0;
+                padding: 1.5rem;
+            }
+            h1 { font-size: 1.8rem; }
+            h2 { font-size: 1.4rem; }
+        }
+
+        /* 返回顶部按钮 */
+        .back-to-top {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--primary-color);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 50px;
+            text-decoration: none;
+            font-size: 0.9rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<!-- 侧边栏导航 -->
+<nav class="sidebar">
+    <h2>📚 目录</h2>
+    <ul class="nav-list">
+        <li><a href="#intro">1. 应用简介</a></li>
+        <li><a href="#quick-start">2. 快速开始</a></li>
+        <li><a href="#core-features">3. 核心功能</a>
+            <ul class="nav-list sub-nav">
+                <li><a href="#core-parse">解析与下载</a></li>
+                <li><a href="#core-history">历史记录</a></li>
+                <li><a href="#core-subtitle">AI 摘要与字幕</a></li>
+            </ul>
+        </li>
+        <li><a href="#account">4. 账号管理</a></li>
+        <li><a href="#ai-comment">5. AI 智能评论助手</a></li>
+        <li><a href="#tools">6. 工具箱</a>
+            <ul class="nav-list sub-nav">
+                <li><a href="#tool-crop">音频裁剪</a></li>
+                <li><a href="#tool-asr">语音转文字</a></li>
+                <li><a href="#tool-ffmpeg">FFmpeg 终端</a></li>
+            </ul>
+        </li>
+        <li><a href="#faq">7. 常见问题 (FAQ)</a></li>
+    </ul>
+</nav>
+
+<!-- 主内容区 -->
+<main class="main-content">
+    <header>
+        <h1>BiliDownloader 用户使用手册</h1>
+        <div class="meta-info">
+            <span>版本: 1.0</span> |
+            <span>适用平台: Android 10+ (推荐 Android 12+)</span>
+        </div>
+    </header>
+
+    <section id="intro">
+        <h2>1. 应用简介</h2>
+        <p><strong>BiliDownloader</strong> 是一款集成了 B 站视频下载、AI 辅助互动以及多媒体处理工具的综合性
+            Android 应用。它不仅支持提取 B 站的高清视频和无损音频，还利用 Google Gemini、DeepSeek
+            等大模型实现视频内容的 AI 总结与自动化评论，并内置了强大的 FFmpeg 终端和阿里云语音转写功能。
+        </p>
+    </section>
+
+    <section id="quick-start">
+        <h2>2. 快速开始</h2>
+
+        <h3>2.1 权限授予</h3>
+        <p>首次启动应用时，请根据提示授予以下权限，以确保功能正常运行：</p>
+        <ul>
+            <li><strong>存储权限 (必须)</strong>：用于保存下载的视频、音频及导出文件。</li>
+            <li><strong>通知权限</strong>：用于显示下载进度和后台任务状态。</li>
+        </ul>
+
+        <h3>2.2 界面导航</h3>
+        <p>应用底部导航栏分为两个主要板块：</p>
+        <ul>
+            <li><strong>🏠 首页</strong>：负责视频解析、下载、历史记录管理及账号切换。</li>
+            <li><strong>🛠️ 工具</strong>：包含音频裁剪、语音转写、AI 评论助手及 FFmpeg 终端。</li>
+        </ul>
+    </section>
+
+    <section id="core-features">
+        <h2>3. 核心功能：视频下载与解析</h2>
+
+        <h3 id="core-parse">3.1 解析与下载</h3>
+        <ol>
+            <li>在首页输入框中粘贴 <strong>视频链接</strong>（支持短链 <code>b23.tv</code>）或直接输入
+                <strong>BV 号</strong>。
+            </li>
+            <li>点击 <strong>“开始解析”</strong> 按钮。解析成功后，将显示视频封面、标题及内置播放器预览。
+            </li>
+            <li><strong>选择画质/音质</strong>：
+                <ul>
+                    <li>点击下拉菜单选择清晰度（支持 4K/8K/1080P+，部分需大会员）。</li>
+                    <li>支持选择杜比全景声、Hi-Res 无损 (FLAC) 或标准 AAC 音频。</li>
+                </ul>
+            </li>
+            <li><strong>执行下载</strong>：
+                <ul>
+                    <li><strong>下载 MP4</strong>：自动合并视频流和音频流，保存至系统相册。</li>
+                    <li><strong>仅下载音频</strong>：仅提取音频轨道并自动转码/封装，保存至系统音乐库。
+                    </li>
+                </ul>
+            </li>
+        </ol>
+
+        <h3 id="core-history">3.2 历史记录</h3>
+        <ul>
+            <li>解析过的视频会自动保存在首页下方列表。</li>
+            <li><strong>长按</strong>任意历史记录进入<strong>多选模式</strong>，可批量删除记录。</li>
+            <li>点击记录可快速重新解析。</li>
+        </ul>
+
+        <h3 id="core-subtitle">3.3 AI 摘要与字幕导出</h3>
+        <p>在解析结果页点击 <strong>“✨ AI 智能摘要 / 字幕”</strong> 按钮：</p>
+        <ul>
+            <li><strong>查看摘要</strong>：应用会自动获取 B 站生成的 AI 视频总结（如有）。</li>
+            <li><strong>查看字幕</strong>：支持查看视频的 CC 字幕。</li>
+            <li><strong>导出/复制</strong>：点击右上角图标可将字幕内容复制，或导出 TXT 文件至 <code>Downloads/BiliDownloader/Transcription</code>。
+            </li>
+            <li><strong>Plan B</strong>：若无字幕，点击“没有字幕？试试阿里云转写”跳转至语音转写工具。
+            </li>
+        </ul>
+    </section>
+
+    <section id="account">
+        <h2>4. 账号管理与登录</h2>
+        <blockquote>提示：为获取 1080P+ 高画质流，建议登录 B 站账号。</blockquote>
+
+        <h3>4.1 登录方式</h3>
+        <p>点击首页右上角的 <strong>头像图标</strong> 进入账号管理：</p>
+        <ol>
+            <li><strong>短信登录</strong>：输入手机号 -> 完成极验验证码 -> 输入短信验证码登录。</li>
+            <li><strong>手动添加 Cookie</strong>：适合高级用户。粘贴包含 <code>SESSDATA</code> 和
+                <code>bili_jct</code> 的 Cookie 字符串。
+            </li>
+        </ol>
+
+        <h3>4.2 多账号切换</h3>
+        <ul>
+            <li>应用支持保存多个账号。</li>
+            <li>在账号列表中点击非当前账号即可快速切换。</li>
+            <li>长按账号条目可复制完整的 Cookie 字符串。</li>
+        </ul>
+    </section>
+
+    <section id="ai-comment">
+        <h2>5. AI 智能评论助手</h2>
+        <p>入口：<strong>工具页 -> AI 评论助手</strong>。利用大语言模型（LLM）根据字幕自动生成评论。</p>
+
+        <h3>5.1 基础设置</h3>
+        <ul>
+            <li><strong>模型选择</strong>：支持 Google Gemini、DeepSeek。建议选择 <strong>“✨
+                智能托管”</strong>。
+            </li>
+            <li>
+                <strong>评论风格</strong>：内置“幽默玩梗”、“课代表总结”等风格，支持<strong>新建自定义风格</strong>（编写
+                Prompt）。
+            </li>
+        </ul>
+
+        <h3>5.2 生成与发送</h3>
+        <p>输入 BV 号解析 -> 选择风格 -> AI 生成评论 -> 二次编辑 -> 点击 <strong>“确认发送”</strong>
+            自动发布。</p>
+
+        <h3>5.3 全自动驾驶模式 (Auto Pilot)</h3>
+        <p>在控制台区域选择风格启动。应用将循环执行：<strong>拉取推荐 -> 过滤 -> 获取字幕 -> 生成评论
+            -> 发送</strong>。</p>
+        <blockquote>注意：此功能仅供学习测试，请勿滥用以免账号被风控。</blockquote>
+    </section>
+
+    <section id="tools">
+        <h2>6. 工具箱</h2>
+
+        <h3 id="tool-crop">6.1 音频裁剪</h3>
+        <ul>
+            <li><strong>导入</strong>：从本地选择或从首页跳转。</li>
+            <li><strong>操作</strong>：拖动滑块选择区域，支持毫秒级微调。</li>
+            <li><strong>保存</strong>：裁剪后导出为 MP3 至音乐库。</li>
+        </ul>
+
+        <h3 id="tool-asr">6.2 语音转文字 (听悟)</h3>
+        <p>基于阿里云通义听悟模型。</p>
+        <ul>
+            <li><strong>配置</strong>：需填入阿里云控制台的 <code>Cookie</code> 和
+                <code>sec_token</code> 以监控免费额度。
+            </li>
+            <li><strong>流程</strong>：选择文件 -> 自动上传 OSS -> 提交任务 -> 轮询结果 -> 导出 TXT。
+            </li>
+        </ul>
+
+        <h3 id="tool-ffmpeg">6.3 FFmpeg 万能终端</h3>
+        <p>面向高级用户的视频处理工具。</p>
+        <ul>
+            <li><strong>Raw 模式</strong>：直接输入 FFmpeg 参数（如 <code>-c:v copy</code>）。</li>
+            <li><strong>预设系统</strong>：支持导入 JSON 配置或保存常用命令。</li>
+            <li><strong>控制台</strong>：实时显示执行日志，支持复制排查错误。</li>
+        </ul>
+    </section>
+
+    <section id="faq">
+        <h2>7. 常见问题 (FAQ)</h2>
+
+        <details>
+            <summary>Q1: 为什么下载的视频只有 480P？</summary>
+            <div class="faq-answer">
+                高画质（1080P/4K）通常需要登录 B 站账号。请在首页点击头像登录。如果需要 4K
+                画质，您的账号必须是大会员。
+            </div>
+        </details>
+
+        <details>
+            <summary>Q2: AI 评论助手提示“无字幕”？</summary>
+            <div class="faq-answer">
+                AI 生成评论依赖视频字幕或 B 站的 AI 摘要。如果视频本身没有 CC 字幕且未生成摘要，AI
+                将无法分析内容。此时可使用工具箱中的“语音转文字”功能自行生成文本。
+            </div>
+        </details>
+
+        <details>
+            <summary>Q3: 为什么部分 FFmpeg 命令执行失败？</summary>
+            <div class="faq-answer">
+                本应用使用移动端 FFmpeg 库，受限于手机性能和架构：
+                1. 严禁使用多文件输入/输出（目前仅支持单文件流）。<br>
+                2. 避免使用过于复杂的滤镜链，可能导致内存溢出。<br>
+                3. 请参考终端页面的预设示例进行修改。
+            </div>
+        </details>
+
+        <details>
+            <summary>Q4: 文件保存在哪里？</summary>
+            <div class="faq-answer">
+                <ul>
+                    <li><strong>视频</strong>：系统相册 (<code>DCIM</code> 或 <code>Movies/BiliDownloader</code>)。
+                    </li>
+                    <li><strong>音频</strong>：系统音乐库 (<code>Music/BiliDownloader</code>)。</li>
+                    <li><strong>导出文本</strong>：下载目录 (<code>Downloads/BiliDownloader/Transcription</code>)。
+                    </li>
+                </ul>
+            </div>
+        </details>
+    </section>
+
+    <footer>
+        <p><strong>免责声明</strong>：本应用仅供个人学习与技术交流使用，请勿用于非法用途。</p>
+        <p>视频版权归 Bilibili 及原作者所有。请遵守 Bilibili 社区规范。</p>
+        <p>&copy; 2024 BiliDownloader Manual</p>
+    </footer>
+</main>
+
+<a href="#" class="back-to-top" id="backToTop">↑ 返回顶部</a>
+
+<script>
+    // 简单的返回顶部按钮逻辑
+    const backToTopBtn = document.getElementById('backToTop');
+    window.onscroll = function() {
+        if (document.body.scrollTop > 200 || document.documentElement.scrollTop > 200) {
+            backToTopBtn.style.display = "block";
+        } else {
+            backToTopBtn.style.display = "none";
+        }
+    };
+
+    // 简单的侧边栏高亮逻辑
+    const sections = document.querySelectorAll("section");
+    const navLinks = document.querySelectorAll(".sidebar nav ul li a");
+
+    window.addEventListener("scroll", () => {
+        let current = "";
+        sections.forEach((section) => {
+            const sectionTop = section.offsetTop;
+            if (pageYOffset >= sectionTop - 60) {
+                current = section.getAttribute("id");
+            }
+        });
+
+        navLinks.forEach((link) => {
+            link.classList.remove("active");
+            if (link.getAttribute("href").includes(current) && current !== "") {
+                link.classList.add("active");
+            }
+        });
+    });
+</script>
+</body>
+</html>
