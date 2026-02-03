@@ -10,7 +10,9 @@ import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.database.HistoryEntity
 import com.example.bilidownloader.core.database.UserEntity
 import com.example.bilidownloader.core.manager.CookieManager
+import com.example.bilidownloader.core.model.CloudHistoryItem
 import com.example.bilidownloader.core.model.ConclusionData
+import com.example.bilidownloader.core.model.HistoryCursor
 import com.example.bilidownloader.core.model.VideoDetail
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.util.StorageHelper
@@ -21,21 +23,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
+ * 历史记录的标签页类型枚举.
+ */
+enum class HistoryTab {
+    Local, // 本地数据库记录
+    Cloud  // B站账号云端记录
+}
+
+/**
  * 首页 ViewModel.
- *
- * 负责协调首页的所有业务逻辑，包括：
- * 1. 视频链接解析 (HomeRepository).
- * 2. 账号 Session 管理 (AuthRepository).
- * 3. 历史记录管理 (HistoryRepository).
- * 4. 启动与控制下载服务 (DownloadService).
- * 5. 获取 AI 摘要与字幕 (SubtitleRepository).
- *
- * @param application Android 应用上下文.
- * @param historyRepository 历史记录数据源.
- * @param authRepository 用户认证数据源.
- * @param homeRepository 视频解析数据源.
- * @param downloadRepository 下载相关数据源.
- * @param subtitleRepository 字幕解析数据源.
  */
 class HomeViewModel(
     application: Application,
@@ -50,30 +46,45 @@ class HomeViewModel(
     // 状态流 (StateFlow)
     // ========================================================================
 
-    // UI 主状态
     private val _state = MutableStateFlow<HomeState>(HomeState.Idle)
     val state = _state.asStateFlow()
 
-    // 历史记录列表 (热流)
     val historyList = historyRepository.allHistory.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
 
-    // 用户账号列表 (热流)
     val userList = authRepository.allUsers.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
 
-    // 当前激活的用户
     private val _currentUser = MutableStateFlow<UserEntity?>(null)
     val currentUser = _currentUser.asStateFlow()
 
     // ========================================================================
-    // 内部临时变量 (用于下载参数传递)
+    // 云端历史记录状态
+    // ========================================================================
+
+    private val _historyTab = MutableStateFlow(HistoryTab.Local)
+    val historyTab = _historyTab.asStateFlow()
+
+    private val _cloudHistoryList = MutableStateFlow<List<CloudHistoryItem>>(emptyList())
+    val cloudHistoryList = _cloudHistoryList.asStateFlow()
+
+    private val _isCloudHistoryLoading = MutableStateFlow(false)
+    val isCloudHistoryLoading = _isCloudHistoryLoading.asStateFlow()
+
+    private val _cloudHistoryError = MutableStateFlow<String?>(null)
+    val cloudHistoryError = _cloudHistoryError.asStateFlow()
+
+    private var nextCloudCursor: HistoryCursor? = null
+    private var hasMoreCloudHistory = true
+
+    // ========================================================================
+    // 内部临时变量
     // ========================================================================
     private var currentBvid: String = ""
     private var currentCid: Long = 0L
@@ -83,7 +94,7 @@ class HomeViewModel(
     private var savedAudioOption: FormatOption? = null
 
     init {
-        // 监听全局下载状态 (Service -> Session -> ViewModel)
+        // 1. 监听全局下载状态 (Service -> Session -> ViewModel)
         viewModelScope.launch {
             DownloadSession.downloadState.collect { resource ->
                 when (resource) {
@@ -102,8 +113,25 @@ class HomeViewModel(
                 }
             }
         }
-        // 初始化时恢复登录会话
+
+        // 2. 初始化时恢复登录会话
         restoreSession()
+
+        // 3. [核心修复] 监听当前用户变化，重置并按需刷新云端历史
+        viewModelScope.launch {
+            currentUser.collect { newUser ->
+                // 当用户发生变化时 (登录、切换、登出)，必须重置云端历史记录的状态
+                _cloudHistoryList.value = emptyList()
+                nextCloudCursor = null
+                hasMoreCloudHistory = true
+                _cloudHistoryError.value = null
+
+                // 如果用户切换到了一个有效账号，并且当前正停留在“账号记录”Tab，则刷新
+                if (_historyTab.value == HistoryTab.Cloud && newUser != null) {
+                    refreshCloudHistory()
+                }
+            }
+        }
     }
 
     private fun handleDownloadError(msg: String?) {
@@ -112,14 +140,8 @@ class HomeViewModel(
                 val currentP = (_state.value as? HomeState.Processing)?.progress ?: 0f
                 _state.value = HomeState.Processing("已暂停", currentP)
             }
-
-            "CANCELED" -> {
-                _state.value = HomeState.Idle
-            }
-
-            else -> {
-                _state.value = HomeState.Error(msg ?: "失败")
-            }
+            "CANCELED" -> _state.value = HomeState.Idle
+            else -> _state.value = HomeState.Error(msg ?: "失败")
         }
     }
 
@@ -127,7 +149,6 @@ class HomeViewModel(
     // 1. 账号管理 (Session & Cookie)
     // ========================================================================
 
-    /** 恢复上次的会话状态 */
     private fun restoreSession() {
         viewModelScope.launch(Dispatchers.IO) {
             val activeUser = authRepository.getCurrentUser()
@@ -141,7 +162,6 @@ class HomeViewModel(
         }
     }
 
-    /** 同步 CookieManager 中的 Cookie 到当前用户数据库 (防止外部浏览器修改后不同步) */
     fun syncCookieToUserDB() {
         viewModelScope.launch(Dispatchers.IO) {
             val localCookie = CookieManager.getCookie(getApplication())
@@ -149,30 +169,22 @@ class HomeViewModel(
         }
     }
 
-    /** 添加或更新账号 (通过 Cookie 字符串) */
     fun addOrUpdateAccount(cookieInput: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // 1. 简单格式处理
                 val rawCookie = if (cookieInput.contains("=")) cookieInput else "SESSDATA=$cookieInput"
                 val cookieMap = CookieManager.parseCookieStringToMap(rawCookie)
                 val inputSess = cookieMap["SESSDATA"]
-                val inputCsrf = cookieMap["bili_jct"] ?: ""
-
                 if (inputSess.isNullOrEmpty()) {
                     showToast("无效的 Cookie (缺少 SESSDATA)")
                     return@launch
                 }
-
-                // 2. 存入 Manager 并联网验证
                 CookieManager.saveCookies(getApplication(), listOf(rawCookie))
                 val response = NetworkModule.biliService.getSelfInfo().execute()
                 val userData = response.body()?.data
-
                 if (userData != null && userData.isLogin) {
-                    // 3. 获取或补全 CSRF 并入库
+                    val inputCsrf = cookieMap["bili_jct"] ?: ""
                     val finalCsrf = if (inputCsrf.isNotEmpty()) inputCsrf else CookieManager.getCookieValue(getApplication(), "bili_jct") ?: ""
-
                     val newUser = UserEntity(
                         mid = userData.mid,
                         name = userData.uname,
@@ -181,11 +193,9 @@ class HomeViewModel(
                         biliJct = finalCsrf,
                         isLogin = true
                     )
-
                     authRepository.clearAllLoginStatus()
                     authRepository.insertUser(newUser)
                     _currentUser.value = newUser
-
                     showToast("登录成功")
                 } else {
                     showToast("验证失败：Cookie 可能已过期")
@@ -199,7 +209,6 @@ class HomeViewModel(
         }
     }
 
-    /** 切换当前账号 */
     fun switchAccount(user: UserEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             authRepository.clearAllLoginStatus()
@@ -209,7 +218,6 @@ class HomeViewModel(
         }
     }
 
-    /** 退出至游客模式 */
     fun quitToGuestMode() {
         viewModelScope.launch(Dispatchers.IO) {
             authRepository.clearAllLoginStatus()
@@ -218,7 +226,6 @@ class HomeViewModel(
         }
     }
 
-    /** 注销并删除账号 */
     fun logoutAndRemove(user: UserEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             authRepository.deleteUser(user)
@@ -227,26 +234,77 @@ class HomeViewModel(
     }
 
     // ========================================================================
-    // 2. 视频解析逻辑
+    // 2. 云端历史记录动作
     // ========================================================================
 
-    /** 解析输入的链接或 BV 号 */
+    fun selectHistoryTab(tab: HistoryTab) {
+        if (_historyTab.value == tab) return
+        _historyTab.value = tab
+        if (tab == HistoryTab.Cloud && _cloudHistoryList.value.isEmpty() && currentUser.value != null) {
+            refreshCloudHistory()
+        }
+    }
+
+    fun refreshCloudHistory() {
+        if (_isCloudHistoryLoading.value) return
+        viewModelScope.launch {
+            _isCloudHistoryLoading.value = true
+            _cloudHistoryError.value = null
+            nextCloudCursor = null
+            hasMoreCloudHistory = true
+            when (val result = homeRepository.fetchCloudHistory(null)) {
+                is Resource.Success -> {
+                    val (list, cursor) = result.data!!
+                    _cloudHistoryList.value = list
+                    nextCloudCursor = cursor
+                    if (cursor == null) hasMoreCloudHistory = false
+                }
+
+                is Resource.Error -> {
+                    _cloudHistoryError.value = result.message
+                    _cloudHistoryList.value = emptyList()
+                }
+
+                else -> {}
+            }
+            _isCloudHistoryLoading.value = false
+        }
+    }
+
+    fun loadMoreCloudHistory() {
+        if (_isCloudHistoryLoading.value || !hasMoreCloudHistory) return
+        viewModelScope.launch {
+            _isCloudHistoryLoading.value = true
+            when (val result = homeRepository.fetchCloudHistory(nextCloudCursor)) {
+                is Resource.Success -> {
+                    val (newList, cursor) = result.data!!
+                    _cloudHistoryList.update { it + newList }
+                    nextCloudCursor = cursor
+                    if (cursor == null) hasMoreCloudHistory = false
+                }
+
+                is Resource.Error -> showToast("加载更多失败: ${result.message}")
+                else -> {}
+            }
+            _isCloudHistoryLoading.value = false
+        }
+    }
+
+    // ========================================================================
+    // 3. 视频解析与下载
+    // ========================================================================
+
     fun analyzeInput(input: String) {
         viewModelScope.launch {
             _state.value = HomeState.Analyzing
-
             when (val resource = homeRepository.analyzeVideo(input)) {
                 is Resource.Success -> {
                     val result = resource.data!!
-                    // 缓存当前视频信息
                     currentDetail = result.detail
                     currentBvid = result.detail.bvid
                     currentCid = result.detail.pages[0].cid
-
-                    // 默认选中第一个画质/音质选项
                     savedVideoOption = result.videoFormats.firstOrNull()
                     savedAudioOption = result.audioFormats.firstOrNull()
-
                     _state.value = HomeState.ChoiceSelect(
                         detail = result.detail,
                         videoFormats = result.videoFormats,
@@ -255,29 +313,21 @@ class HomeViewModel(
                         selectedAudio = savedAudioOption
                     )
                 }
-                is Resource.Error -> {
-                    _state.value = HomeState.Error(resource.message ?: "未知解析错误")
-                }
+                is Resource.Error -> _state.value =
+                    HomeState.Error(resource.message ?: "未知解析错误")
                 else -> {}
             }
         }
     }
 
-    // ========================================================================
-    // 3. 下载控制逻辑 (Service Interaction)
-    // ========================================================================
-
-    /** 启动下载任务 */
     fun startDownload(audioOnly: Boolean) {
         val vOpt = savedVideoOption
         val aOpt = savedAudioOption
-        // 校验参数
         if ((!audioOnly && vOpt == null) || aOpt == null) {
             _state.value = HomeState.Error("下载参数丢失，请重新解析")
             return
         }
         isLastDownloadAudioOnly = audioOnly
-
         val context = getApplication<Application>()
         val intent = Intent(context, DownloadService::class.java).apply {
             action = DownloadService.ACTION_START
@@ -289,28 +339,20 @@ class HomeViewModel(
             putExtra("aid", aOpt.id)
             putExtra("acodec", aOpt.codecs)
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
         } else {
             context.startService(intent)
         }
-
-        // 乐观更新 UI 为“准备中”
         val currentP = (_state.value as? HomeState.Processing)?.progress ?: 0f
         _state.value = HomeState.Processing("下载准备中...", currentP)
     }
 
-    /** 暂停下载 */
     fun pauseDownload() {
         val intent = Intent(getApplication(), DownloadService::class.java).apply { action = DownloadService.ACTION_PAUSE }
         getApplication<Application>().startService(intent)
     }
-
-    /** 继续下载 */
     fun resumeDownload() = startDownload(isLastDownloadAudioOnly)
-
-    /** 取消下载 */
     fun cancelDownload() {
         val intent = Intent(getApplication(), DownloadService::class.java).apply { action = DownloadService.ACTION_CANCEL }
         getApplication<Application>().startService(intent)
@@ -318,26 +360,21 @@ class HomeViewModel(
     }
 
     // ========================================================================
-    // 4. 字幕与转写逻辑
+    // 4. 字幕与转写
     // ========================================================================
 
-    /** 从 B 站 API 获取 AI 摘要或字幕 */
     fun fetchSubtitle() {
         val currentState = _state.value
         if (currentState !is HomeState.ChoiceSelect) return
-
         _state.value = currentState.copy(isSubtitleLoading = true)
-
         viewModelScope.launch {
             val result = subtitleRepository.getSubtitleWithSign(
-                bvid = currentBvid,
-                cid = currentCid,
-                upMid = currentDetail?.owner?.mid
+                currentBvid,
+                currentCid,
+                currentDetail?.owner?.mid
             )
-
             val safeState = _state.value
             if (safeState !is HomeState.ChoiceSelect) return@launch
-
             when (result) {
                 is Resource.Success -> {
                     val data = result.data
@@ -349,73 +386,53 @@ class HomeViewModel(
                         subtitleContent = initialContent
                     )
                 }
-                is Resource.Error -> {
-                    _state.value = safeState.copy(
-                        isSubtitleLoading = false,
-                        subtitleData = null,
-                        subtitleContent = "ERROR:${result.message}"
-                    )
-                }
+
+                is Resource.Error -> _state.value = safeState.copy(
+                    isSubtitleLoading = false,
+                    subtitleData = null,
+                    subtitleContent = "ERROR:${result.message}"
+                )
                 else -> {}
             }
         }
     }
 
-    /** 准备转写：先下载音频提取到 Cache，成功后回调路径 */
     fun prepareForTranscription(onReady: (String) -> Unit) {
         viewModelScope.launch {
             downloadRepository.downloadAudioToCache(currentBvid, currentCid).collect { resource ->
                 when (resource) {
-                    is Resource.Loading -> {
-                        _state.value = HomeState.Processing(
-                            resource.data ?: "准备音频中...",
-                            resource.progress
-                        )
-                    }
+                    is Resource.Loading -> _state.value =
+                        HomeState.Processing(resource.data ?: "准备音频中...", resource.progress)
+
                     is Resource.Success -> {
-                        onReady(resource.data!!)
-                        reset() // 准备完成后重置首页状态
+                        onReady(resource.data!!); reset()
                     }
-                    is Resource.Error -> {
-                        _state.value = HomeState.Error(resource.message ?: "音频提取失败")
-                    }
+
+                    is Resource.Error -> _state.value =
+                        HomeState.Error(resource.message ?: "音频提取失败")
                 }
             }
         }
     }
 
-    /**
-     * [新增] 导出当前字幕内容为 TXT 文件到 Downloads 目录.
-     */
     fun exportSubtitle(content: String) {
         viewModelScope.launch {
             val context = getApplication<Application>()
-
-            // 1. 生成安全的文件名 (使用视频标题)
             val title = currentDetail?.title ?: "Unknown_Video"
-            // 替换非法字符 (\ / : * ? " < > |) 为下划线
             val safeTitle = title.replace("[\\\\/:*?\"<>|]".toRegex(), "_")
             val fileName = "${safeTitle}_Subtitle.txt"
-
-            // 2. 调用 StorageHelper 保存
             val success = StorageHelper.saveTextToDownloads(context, content, fileName)
-
-            // 3. 反馈结果
             withContext(Dispatchers.Main) {
-                if (success) {
-                    Toast.makeText(
-                        context,
-                        "已保存至 Downloads/BiliDownloader/Transcription",
-                        Toast.LENGTH_LONG
-                    ).show()
-                } else {
-                    Toast.makeText(context, "保存失败，请检查文件权限", Toast.LENGTH_SHORT).show()
-                }
+                if (success) Toast.makeText(
+                    context,
+                    "已保存至 Downloads/BiliDownloader/Transcription",
+                    Toast.LENGTH_LONG
+                ).show()
+                else Toast.makeText(context, "保存失败，请检查文件权限", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    /** 切换时间轴显示状态 */
     fun toggleTimestamp(enabled: Boolean) {
         val currentState = _state.value
         if (currentState !is HomeState.ChoiceSelect) return
@@ -427,32 +444,20 @@ class HomeViewModel(
         _state.value = currentState.copy(isTimestampEnabled = enabled, subtitleContent = newContent)
     }
 
-    /** 更新字幕编辑框内容 */
     fun updateSubtitleContent(content: String) {
         val currentState = _state.value
-        if (currentState is HomeState.ChoiceSelect) {
-            _state.value = currentState.copy(subtitleContent = content)
-        }
+        if (currentState is HomeState.ChoiceSelect) _state.value =
+            currentState.copy(subtitleContent = content)
     }
-
-    /** 清除字幕错误信息 (UI 消费) */
     fun consumeSubtitleError() {
         val currentState = _state.value
-        if (currentState is HomeState.ChoiceSelect && currentState.subtitleContent.startsWith("ERROR:")) {
-            _state.value = currentState.copy(subtitleContent = "")
-        }
+        if (currentState is HomeState.ChoiceSelect && currentState.subtitleContent.startsWith("ERROR:")) _state.value =
+            currentState.copy(subtitleContent = "")
     }
-
-    /** 重置字幕状态 */
     fun clearSubtitleState() {
         val currentState = _state.value
-        if (currentState is HomeState.ChoiceSelect) {
-            _state.value = currentState.copy(
-                subtitleData = null,
-                subtitleContent = "",
-                isSubtitleLoading = false
-            )
-        }
+        if (currentState is HomeState.ChoiceSelect) _state.value =
+            currentState.copy(subtitleData = null, subtitleContent = "", isSubtitleLoading = false)
     }
 
     // ========================================================================
@@ -460,26 +465,19 @@ class HomeViewModel(
     // ========================================================================
 
     fun reset() { _state.value = HomeState.Idle }
-
     fun deleteHistories(list: List<HistoryEntity>) {
         viewModelScope.launch(Dispatchers.IO) { historyRepository.deleteList(list) }
     }
-
     fun updateSelectedVideo(option: FormatOption) {
         savedVideoOption = option
         val cur = _state.value
         if (cur is HomeState.ChoiceSelect) _state.value = cur.copy(selectedVideo = option)
     }
-
     fun updateSelectedAudio(option: FormatOption) {
         savedAudioOption = option
         val cur = _state.value
         if (cur is HomeState.ChoiceSelect) _state.value = cur.copy(selectedAudio = option)
     }
-
-    // ========================================================================
-    // 私有工具方法
-    // ========================================================================
 
     private suspend fun showToast(msg: String) {
         withContext(Dispatchers.Main) {
@@ -487,17 +485,10 @@ class HomeViewModel(
         }
     }
 
-    /** 格式化字幕数据为纯文本 */
     private fun formatSubtitleText(data: ConclusionData?, index: Int, showTimestamp: Boolean): String {
         if (data == null) return ""
         val sb = StringBuilder()
-
-        // 添加 AI 摘要
-        if (!data.modelResult?.summary.isNullOrEmpty()) {
-            sb.append("【AI 摘要】\n${data.modelResult?.summary}\n\n")
-        }
-
-        // 添加大纲
+        if (!data.modelResult?.summary.isNullOrEmpty()) sb.append("【AI 摘要】\n${data.modelResult?.summary}\n\n")
         if (!data.modelResult?.outline.isNullOrEmpty()) {
             sb.append("【视频大纲】\n")
             data.modelResult?.outline?.forEach { item ->
@@ -506,8 +497,6 @@ class HomeViewModel(
             }
             sb.append("\n")
         }
-
-        // 添加具体字幕内容
         val subtitles = data.modelResult?.subtitle
         if (!subtitles.isNullOrEmpty() && index < subtitles.size) {
             sb.append("【字幕内容】\n")

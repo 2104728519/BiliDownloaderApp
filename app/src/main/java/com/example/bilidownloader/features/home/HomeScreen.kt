@@ -13,8 +13,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,10 +26,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -38,12 +42,19 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.bilidownloader.core.database.HistoryEntity
 import com.example.bilidownloader.core.database.UserEntity
+import com.example.bilidownloader.core.model.CloudHistoryItem
 import com.example.bilidownloader.di.AppViewModelProvider
 import com.example.bilidownloader.features.home.components.BiliWebPlayer
 import com.example.bilidownloader.features.home.components.HistoryItem
 
 /**
  * 首页主屏幕 (HomeScreen).
+ * 核心职责：
+ * 1. 提供视频链接输入和解析功能。
+ * 2. 展示解析后的视频详情和下载选项。
+ * 3. 管理账号登录、切换和 Cookie 输入弹窗。
+ * 4. [新增] 提供 Tab 切换，展示 "本地记录" 和 "账号记录" 两种历史列表。
+ * 5. 控制 AI 字幕和语音转写流程的入口。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,7 +67,7 @@ fun HomeScreen(
     val clipboardManager = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Android 13+ 通知权限
+    // Android 13+ 通知权限请求
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { /* 权限结果处理 */ }
@@ -69,14 +80,25 @@ fun HomeScreen(
         }
     }
 
-    // 状态收集
+    // --- 状态收集 ---
+    // 核心 UI 状态 (Idle, Analyzing, ChoiceSelect etc.)
+    val state by viewModel.state.collectAsState()
+    // 用户与账号相关状态
     val currentUser by viewModel.currentUser.collectAsState()
     val userList by viewModel.userList.collectAsState()
-    val state by viewModel.state.collectAsState()
+    // 本地历史记录
     val historyList by viewModel.historyList.collectAsState()
 
+    // [新增] 云端历史记录相关状态
+    val historyTab by viewModel.historyTab.collectAsState()
+    val cloudHistoryList by viewModel.cloudHistoryList.collectAsState()
+    val isCloudHistoryLoading by viewModel.isCloudHistoryLoading.collectAsState()
+    val cloudHistoryError by viewModel.cloudHistoryError.collectAsState()
+
+
+    // --- UI 内部状态 ---
     var inputText by remember { mutableStateOf("") }
-    var isSelectionMode by remember { mutableStateOf(false) }
+    var isSelectionMode by remember { mutableStateOf(false) } // 本地历史多选模式
     val selectedItems = remember { mutableStateListOf<HistoryEntity>() }
 
     // 弹窗控制
@@ -89,6 +111,7 @@ fun HomeScreen(
         selectedItems.clear()
     }
 
+    // 生命周期监听，用于恢复页面时同步 Cookie
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) viewModel.syncCookieToUserDB()
@@ -97,16 +120,17 @@ fun HomeScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // 返回键处理
     BackHandler(enabled = isSelectionMode || state !is HomeState.Idle) {
         if (isSelectionMode) exitSelectionMode()
         else if (state !is HomeState.Idle) viewModel.reset()
     }
 
     // =========================================================
-    // 弹窗
+    // 弹窗 (Dialogs)
     // =========================================================
 
-    // 1. 账号弹窗
+    // 1. 账号管理弹窗
     if (showAccountDialog) {
         Dialog(onDismissRequest = { showAccountDialog = false }) {
             Card(
@@ -172,7 +196,7 @@ fun HomeScreen(
         }
     }
 
-    // 2. Cookie 输入弹窗
+    // 2. Cookie 手动输入弹窗
     if (showManualCookieInput) {
         var cookieText by remember { mutableStateOf("") }
         Dialog(onDismissRequest = { showManualCookieInput = false }) {
@@ -212,23 +236,21 @@ fun HomeScreen(
         }
     }
 
-    // 3. AI 字幕弹窗 (修复 Crash 的关键点)
+    // 3. AI 字幕弹窗
     if (showSubtitleDialog && state is HomeState.ChoiceSelect) {
         SubtitleDialog(
             currentState = state as HomeState.ChoiceSelect,
             viewModel = viewModel,
             onDismiss = { showSubtitleDialog = false },
-            // [修复] 这里修改了参数，接收 (path, title)
             onNavigateToTranscribe = { path, title ->
                 showSubtitleDialog = false
-                // 直接使用传出来的 title，不再去读 state
                 onNavigateToTranscribe(path, title)
             }
         )
     }
 
     // =========================================================
-    // 主界面
+    // 主界面 (Scaffold)
     // =========================================================
     Scaffold(
         topBar = {
@@ -279,7 +301,9 @@ fun HomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             when (val currentState = state) {
+                // --- 1. 空闲状态 ---
                 is HomeState.Idle -> {
+                    // 输入框和解析按钮
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { inputText = it },
@@ -301,34 +325,88 @@ fun HomeScreen(
                         enabled = inputText.isNotBlank()
                     ) { Text("开始解析") }
                     Spacer(modifier = Modifier.height(24.dp))
-                    if (historyList.isNotEmpty()) {
-                        Text("历史记录", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.Start))
-                        Spacer(modifier = Modifier.height(8.dp))
+
+                    // --- [核心修改] 历史记录区域 ---
+                    TabRow(
+                        selectedTabIndex = historyTab.ordinal,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        Tab(
+                            selected = historyTab == HistoryTab.Local,
+                            onClick = { viewModel.selectHistoryTab(HistoryTab.Local) },
+                            text = { Text("本地记录") }
+                        )
+                        Tab(
+                            selected = historyTab == HistoryTab.Cloud,
+                            onClick = { viewModel.selectHistoryTab(HistoryTab.Cloud) },
+                            text = { Text("账号记录") }
+                        )
                     }
-                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(historyList) { history ->
-                            HistoryItem(
-                                history = history,
-                                isSelectionMode = isSelectionMode,
-                                isSelected = selectedItems.contains(history),
-                                onClick = {
-                                    if (isSelectionMode) {
-                                        if (selectedItems.contains(history)) selectedItems.remove(
-                                            history
-                                        ) else selectedItems.add(history)
-                                    } else viewModel.analyzeInput(history.bvid)
-                                },
-                                onLongClick = {
-                                    if (!isSelectionMode) {
-                                        isSelectionMode = true; selectedItems.add(history)
+
+                    // 根据 Tab 显示不同内容
+                    when (historyTab) {
+                        HistoryTab.Local -> {
+                            if (historyList.isNotEmpty()) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(top = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(historyList) { history ->
+                                        HistoryItem(
+                                            history = history,
+                                            isSelectionMode = isSelectionMode,
+                                            isSelected = selectedItems.contains(history),
+                                            onClick = {
+                                                if (isSelectionMode) {
+                                                    if (selectedItems.contains(history)) selectedItems.remove(
+                                                        history
+                                                    )
+                                                    else selectedItems.add(history)
+                                                } else viewModel.analyzeInput(history.bvid)
+                                            },
+                                            onLongClick = {
+                                                if (!isSelectionMode) {
+                                                    isSelectionMode = true; selectedItems.add(
+                                                        history
+                                                    )
+                                                }
+                                            }
+                                        )
                                     }
                                 }
+                            } else {
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "暂无本地解析记录",
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                        }
+
+                        HistoryTab.Cloud -> {
+                            CloudHistoryContent(
+                                viewModel = viewModel,
+                                currentUser = currentUser,
+                                cloudHistoryList = cloudHistoryList,
+                                isCloudHistoryLoading = isCloudHistoryLoading,
+                                cloudHistoryError = cloudHistoryError,
+                                onLoginClick = { showManualCookieInput = true }
                             )
                         }
                     }
                 }
 
+                // --- 2. 解析中状态 ---
                 is HomeState.Analyzing -> CircularProgressIndicator(modifier = Modifier.padding(top = 100.dp))
+
+                // --- 3. 选择下载项状态 ---
                 is HomeState.ChoiceSelect -> {
                     Column(
                         modifier = Modifier
@@ -367,6 +445,8 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(48.dp))
                     }
                 }
+
+                // --- 4. 处理中状态 (下载/合并) ---
                 is HomeState.Processing -> {
                     Column(
                         modifier = Modifier
@@ -402,12 +482,16 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                // --- 5. 成功状态 ---
                 is HomeState.Success -> {
                     Column(modifier = Modifier.padding(top = 100.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("🎉 ${currentState.message}", color = MaterialTheme.colorScheme.primary)
                         Button(onClick = { viewModel.reset() }, modifier = Modifier.padding(top = 24.dp)) { Text("完成") }
                     }
                 }
+
+                // --- 6. 失败状态 ---
                 is HomeState.Error -> {
                     Column(modifier = Modifier.padding(top = 100.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("❌ ${currentState.errorMsg}", color = MaterialTheme.colorScheme.error)
@@ -421,15 +505,13 @@ fun HomeScreen(
 
 /**
  * AI 摘要与字幕弹窗.
- *
- * @param onNavigateToTranscribe 接收 (path, title).
  */
 @Composable
 fun SubtitleDialog(
     currentState: HomeState.ChoiceSelect,
     viewModel: HomeViewModel,
     onDismiss: () -> Unit,
-    onNavigateToTranscribe: (String, String) -> Unit // [修复] 修改了参数签名
+    onNavigateToTranscribe: (String, String) -> Unit
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -502,13 +584,9 @@ fun SubtitleDialog(
                             Text("或者", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                             Spacer(Modifier.height(16.dp))
 
-                            // [关键修复]：点击时就捕获 Title
                             OutlinedButton(onClick = {
-                                // 1. 在这里捕获当前的标题 (因为此时 currentState 还是有效的 ChoiceSelect)
                                 val savedTitle = currentState.detail.title
-
                                 viewModel.prepareForTranscription { path ->
-                                    // 2. 回调时，将 path 和 之前捕获的 savedTitle 一起传出去
                                     onNavigateToTranscribe(path, savedTitle)
                                 }
                             }) {
@@ -569,7 +647,189 @@ fun SubtitleDialog(
     }
 }
 
+/**
+ * 云端历史记录 UI 容器.
+ * 负责处理登录、加载、错误和列表展示等所有逻辑.
+ */
+@Composable
+private fun ColumnScope.CloudHistoryContent(
+    viewModel: HomeViewModel,
+    currentUser: UserEntity?,
+    cloudHistoryList: List<CloudHistoryItem>,
+    isCloudHistoryLoading: Boolean,
+    cloudHistoryError: String?,
+    onLoginClick: () -> Unit
+) {
+    val cloudListState = rememberLazyListState()
+
+    // 自动加载更多：当列表滚动到倒数第3项时，触发加载
+    LaunchedEffect(cloudListState) {
+        snapshotFlow { cloudListState.layoutInfo.visibleItemsInfo }
+            .collect { visibleItems ->
+                if (visibleItems.isNotEmpty() && visibleItems.last().index >= cloudHistoryList.size - 3) {
+                    viewModel.loadMoreCloudHistory()
+                }
+            }
+    }
+
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .padding(top = 8.dp)
+            .fillMaxWidth()
+    ) {
+        when {
+            // 1. 未登录状态：显示引导页
+            currentUser == null -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        Icons.Default.PersonOff,
+                        null,
+                        Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.outline
+                    )
+                    Text("登录后可查看云端播放历史", color = MaterialTheme.colorScheme.outline)
+                    Button(onClick = onLoginClick) {
+                        Text("添加账号/登录")
+                    }
+                }
+            }
+            // 2. 加载第一页时的全屏加载动画
+            isCloudHistoryLoading && cloudHistoryList.isEmpty() -> {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            }
+            // 3. 加载第一页出错
+            cloudHistoryError != null && cloudHistoryList.isEmpty() -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("加载失败", color = MaterialTheme.colorScheme.error)
+                    Text(cloudHistoryError, color = MaterialTheme.colorScheme.outline)
+                    Button(onClick = { viewModel.refreshCloudHistory() }) { Text("重试") }
+                }
+            }
+            // 4. 列表展示
+            else -> {
+                LazyColumn(
+                    state = cloudListState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(cloudHistoryList, key = { it.kid }) { item ->
+                        CloudHistoryItem(
+                            item = item,
+                            onClick = { viewModel.analyzeInput(item.bvid) },
+                            onLongClick = { /* 长按逻辑在 Item 内部处理 */ }
+                        )
+                    }
+                    // 列表底部的"加载更多"指示器
+                    if (isCloudHistoryLoading && cloudHistoryList.isNotEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+/**
+ * 单条云端历史记录项的 UI 组件.
+ * @param item 数据模型
+ * @param onClick 点击事件回调
+ * @param onLongClick 长按事件回调
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun CloudHistoryItem(
+    item: CloudHistoryItem,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(90.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = {
+                    clipboardManager.setText(AnnotatedString(item.bvid))
+                    Toast.makeText(context, "BV号已复制: ${item.bvid}", Toast.LENGTH_SHORT).show()
+                    onLongClick() // 额外回调，以备将来扩展
+                }
+            ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AsyncImage(
+                model = item.cover.replace("http://", "https://"), // 强制使用 https
+                contentDescription = "视频封面",
+                modifier = Modifier
+                    .width(140.dp)
+                    .fillMaxHeight(),
+                contentScale = ContentScale.Crop
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(8.dp)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Column {
+                    Text(
+                        text = "UP: ${item.author_name}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Text(
+                        text = item.viewDateText, // 使用模型中预格式化的日期
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+/**
+ * 辅助 Modifier，用于缩放 Composable.
+ */
 fun Modifier.scale(scale: Float): Modifier = this.then(Modifier.graphicsLayer(scaleX = scale, scaleY = scale))
+
+/**
+ * 账号列表项 Composable.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AccountItem(user: UserEntity, isCurrent: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onDelete: () -> Unit) {
@@ -582,7 +842,7 @@ fun AccountItem(user: UserEntity, isCurrent: Boolean, onClick: () -> Unit, onLon
     ) {
         AsyncImage(
             model = user.face,
-            contentDescription = null,
+            contentDescription = "用户头像",
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
@@ -605,6 +865,10 @@ fun AccountItem(user: UserEntity, isCurrent: Boolean, onClick: () -> Unit, onLon
         }
     }
 }
+
+/**
+ * 画质/音质选择器 Composable.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QualitySelector(label: String, options: List<FormatOption>, selectedOption: FormatOption?, onOptionSelected: (FormatOption) -> Unit) {

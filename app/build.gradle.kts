@@ -23,8 +23,8 @@ android {
         applicationId = "com.example.bilidownloader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 23
-        versionName = "2.4.8"
+        versionCode = 24
+        versionName = "2.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -7,9 +7,7 @@ import com.example.bilidownloader.core.database.CommentedVideoEntity
 import com.example.bilidownloader.core.database.HistoryDao
 import com.example.bilidownloader.core.database.HistoryEntity
 import com.example.bilidownloader.core.manager.CookieManager
-import com.example.bilidownloader.core.model.CandidateVideo
-import com.example.bilidownloader.core.model.RecommendItem
-import com.example.bilidownloader.core.model.VideoDetail
+import com.example.bilidownloader.core.model.* // 确保导入了所有 core.model 下的类
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.util.BiliSigner
 import com.example.bilidownloader.core.util.LinkUtils
@@ -28,6 +26,7 @@ import java.util.regex.Pattern
  * 1. 视频解析 (原 AnalyzeVideoUseCase)：处理链接、获取详情、计算 WBI、筛选 DASH 流。
  * 2. 推荐流获取 (原 RecommendRepository)：获取首页推荐、本地去重、补充 CID。
  * 3. 历史记录写入。
+ * 4. [新增] 获取账号云端历史记录。
  */
 class HomeRepository(
     private val context: Context,
@@ -115,7 +114,6 @@ class HomeRepository(
 
                 // A. 视频流处理
                 playData.dash.video.forEach { media ->
-                    // 核心修改：不再过滤 AV1 (av01) 编码，以支持更多画质选项
                     val qIndex = playData.accept_quality?.indexOf(media.id) ?: -1
                     val desc = if (qIndex >= 0 && qIndex < (playData.accept_description?.size ?: 0)) {
                         playData.accept_description?.get(qIndex) ?: "未知画质"
@@ -128,7 +126,6 @@ class HomeRepository(
                         else -> "MP4"
                     }
 
-                    // 估算文件体积 (bps * seconds / 8)
                     val estimatedSize = (media.bandwidth * durationInSeconds / 8)
                     videoOpts.add(
                         FormatOption(
@@ -215,7 +212,7 @@ class HomeRepository(
 
     /**
      * 获取候选视频列表.
-     * 包含：WBI签名 -> 获取推荐 -> 本地去重 -> 获取CID.
+     * 包含：WBI签名 -> 获取推荐 -> 本地去重 -> 补充 CID。
      */
     suspend fun fetchCandidateVideos(): Resource<List<CandidateVideo>> = withContext(Dispatchers.IO) {
         try {
@@ -287,6 +284,49 @@ class HomeRepository(
             apiService.reportHistory(aid, cid, progress = 10, csrf = csrf)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    // endregion
+
+    // region 3. Cloud History (云端历史记录) [NEW]
+
+    /**
+     * 获取 B 站账号云端的视频播放历史.
+     * @param cursor 分页游标，为 null 时表示从第一页开始获取.
+     * @return 返回一个包含历史列表和下一个分页游标的 Pair.
+     */
+    suspend fun fetchCloudHistory(cursor: HistoryCursor?): Resource<Pair<List<CloudHistoryItem>, HistoryCursor?>> =
+        withContext(Dispatchers.IO) {
+            try {
+                // 1. API 调用
+                val response = apiService.getHistory(
+                    viewAt = cursor?.view_at ?: 0,
+                    max = cursor?.max ?: 0
+                )
+
+                // 2. 结果处理
+                if (response.code == 0) {
+                    val data = response.data
+                    val list = data?.list ?: emptyList()
+                    val nextCursor = data?.cursor
+
+                    // B站逻辑：如果返回的 list 为空，或 cursor.max 为 0，则表示没有更多数据
+                    val hasMore = !list.isNullOrEmpty() && (nextCursor?.max ?: 0) > 0
+
+                    Resource.Success(Pair(list, if (hasMore) nextCursor else null))
+                } else {
+                    // 特别处理未登录的情况
+                    val errorMsg = if (response.code == -101) {
+                        "请先登录账号"
+                    } else {
+                        response.message ?: "获取失败 (code: ${response.code})"
+                    }
+                    Resource.Error(errorMsg)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Resource.Error("网络异常: ${e.message}")
         }
     }
 

@@ -11,6 +11,7 @@ import com.example.bilidownloader.core.model.RawSubtitleJson
 import com.example.bilidownloader.core.model.RecommendResponse
 import com.example.bilidownloader.features.login.SmsSendResponse
 import com.example.bilidownloader.core.model.VideoDetail
+import com.example.bilidownloader.core.model.BiliHistoryResponse // [新增] 导入历史记录响应模型
 import retrofit2.Call
 import retrofit2.http.*
 
@@ -196,7 +197,7 @@ interface BiliApiService {
     ): BiliResponse<ReplyResultData>
 
     @Headers(
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, iKecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer: https://www.bilibili.com/"
     )
     @GET("x/web-interface/wbi/index/top/feed/rcmd")
@@ -222,6 +223,30 @@ interface BiliApiService {
         @Field("progress") progress: Int = 0,
         @Field("csrf") csrf: String
     ): BiliResponse<Any>
+
+    // endregion
+
+    // region 6. User History (用户历史记录) [NEW]
+
+    /**
+     * 获取账号云端历史记录 (分页接口).
+     *
+     * @param viewAt 上一页返回的 cursor.view_at (第一页传 0)
+     * @param max 上一页返回的 cursor.max (第一页传 0)
+     * @param ps 每页数量，默认 20
+     * @param business 业务类型，固定 "archive" (仅看视频)
+     */
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer: https://www.bilibili.com/account/history"
+    )
+    @GET("x/web-interface/history/cursor")
+    suspend fun getHistory(
+        @Query("view_at") viewAt: Long = 0,
+        @Query("max") max: Long = 0,
+        @Query("ps") ps: Int = 20,
+        @Query("business") business: String = "archive"
+    ): BiliHistoryResponse
 
     // endregion
 }
