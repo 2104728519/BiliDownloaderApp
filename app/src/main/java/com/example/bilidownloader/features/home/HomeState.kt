@@ -1,6 +1,7 @@
 package com.example.bilidownloader.features.home
 
 import com.example.bilidownloader.core.model.ConclusionData
+import com.example.bilidownloader.core.model.PageData
 import com.example.bilidownloader.core.model.VideoDetail
 
 /**
@@ -34,6 +35,7 @@ sealed class HomeState {
         val audioFormats: List<FormatOption>,
         val selectedVideo: FormatOption?,
         val selectedAudio: FormatOption?,
+        val selectedPage: PageData, // 当前选中的分P
 
         // --- 字幕与 AI 摘要相关状态 ---
         val isSubtitleLoading: Boolean = false, // 是否正在请求字幕

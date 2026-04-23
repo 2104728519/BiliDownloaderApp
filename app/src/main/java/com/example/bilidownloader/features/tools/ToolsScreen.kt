@@ -2,7 +2,6 @@ package com.example.bilidownloader.features.tools
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Terminal
@@ -22,7 +21,6 @@ import androidx.compose.ui.unit.dp
 fun ToolsScreen(
     onNavigateToAudioCrop: () -> Unit,
     onNavigateToTranscription: () -> Unit,
-    onNavigateToAiComment: () -> Unit,
     onNavigateToFfmpeg: () -> Unit // [新增] FFmpeg 导航回调
 ) {
     Scaffold(
@@ -54,25 +52,13 @@ fun ToolsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 2. 音频转写
+            // 2. 音频转文字
             ToolCard(
                 title = "音频转文字",
                 description = "调用阿里云 AI 模型进行语音识别",
                 icon = Icons.Default.Description,
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 onClick = onNavigateToTranscription
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // 3. AI 评论助手
-            ToolCard(
-                title = "AI 评论助手",
-                description = "基于视频字幕生成多种风格的评论",
-                icon = Icons.Default.AutoAwesome,
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                onClick = onNavigateToAiComment
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -119,7 +105,7 @@ fun ToolsScreen(
 }
 
 /**
- * 通用工具卡片组件，提取公共样式以减少代码冗余
+ * 通用工具卡片组件，提取公共样式 以减少代码冗余
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -2,12 +2,10 @@ package com.example.bilidownloader.features.home
 
 import android.content.Context
 import com.example.bilidownloader.core.common.Resource
-import com.example.bilidownloader.core.database.CommentedVideoDao
-import com.example.bilidownloader.core.database.CommentedVideoEntity
 import com.example.bilidownloader.core.database.HistoryDao
 import com.example.bilidownloader.core.database.HistoryEntity
 import com.example.bilidownloader.core.manager.CookieManager
-import com.example.bilidownloader.core.model.* // 确保导入了所有 core.model 下的类
+import com.example.bilidownloader.core.model.*
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.util.BiliSigner
 import com.example.bilidownloader.core.util.LinkUtils
@@ -23,14 +21,12 @@ import java.util.regex.Pattern
  * 首页核心仓库.
  *
  * 职责：
- * 1. 视频解析 (原 AnalyzeVideoUseCase)：处理链接、获取详情、计算 WBI、筛选 DASH 流。
- * 2. 推荐流获取 (原 RecommendRepository)：获取首页推荐、本地去重、补充 CID。
- * 3. 历史记录写入。
- * 4. [新增] 获取账号云端历史记录。
+ * 1. 视频解析：处理链接、获取详情、计算 WBI、筛选 DASH 流。
+ * 2. 历史记录写入。
+ * 3. 获取账号云端历史记录。
  */
 class HomeRepository(
     private val context: Context,
-    private val commentedVideoDao: CommentedVideoDao,
     private val historyDao: HistoryDao
 ) {
     private val apiService = NetworkModule.biliService
@@ -61,8 +57,9 @@ class HomeRepository(
             val viewResp = apiService.getVideoView(bvid).execute()
             val detail = viewResp.body()?.data ?: return@withContext Resource.Error("无法获取视频信息")
 
-            // 默认取第一P (暂不支持多P选择)
-            val cid = detail.pages.firstOrNull()?.cid ?: return@withContext Resource.Error("该视频没有分P信息")
+            // 默认取第一P
+            val firstPage =
+                detail.pages.firstOrNull() ?: return@withContext Resource.Error("该视频没有分P信息")
 
             // --- 3. 写入本地历史记录 ---
             historyDao.insertHistory(
@@ -75,16 +72,46 @@ class HomeRepository(
                 )
             )
 
-            // --- 4. WBI 签名 (获取高画质流的前提) ---
+            // --- 4. 获取流地址 ---
+            val formatsResult = fetchVideoFormats(detail.bvid, firstPage.cid)
+            if (formatsResult is Resource.Error) {
+                return@withContext Resource.Error(formatsResult.message ?: "获取流地址失败")
+            }
+
+            val formats = formatsResult.data!!
+
+            Resource.Success(
+                VideoAnalysisResult(
+                    detail = detail,
+                    videoFormats = formats.first,
+                    audioFormats = formats.second
+                )
+            )
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Resource.Error("解析错误: ${e.message}")
+        }
+    }
+
+    /**
+     * 根据 bvid 和 cid 获取可用的视频和音频格式列表.
+     */
+    suspend fun fetchVideoFormats(
+        bvid: String,
+        cid: Long
+    ): Resource<Pair<List<FormatOption>, List<FormatOption>>> = withContext(Dispatchers.IO) {
+        try {
+            // --- 1. WBI 签名 ---
             val navResp = apiService.getNavInfo().execute()
             val navData = navResp.body()?.data ?: return@withContext Resource.Error("无法获取密钥")
             val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
             val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
             val mixinKey = BiliSigner.getMixinKey(imgKey, subKey)
 
-            // --- 5. 构建参数并请求流地址 ---
+            // --- 2. 构建参数并请求流地址 ---
             val params = TreeMap<String, Any>().apply {
-                put("bvid", detail.bvid)
+                put("bvid", bvid)
                 put("cid", cid)
                 put("qn", "127") // 请求 8K/4K 最高画质
                 put("fnval", "4048") // 强制开启 DASH 格式
@@ -92,7 +119,6 @@ class HomeRepository(
             }
             val signedQuery = BiliSigner.signParams(params, mixinKey)
 
-            // Retrofit @QueryMap 需要解码后的参数
             val queryMap = signedQuery.split("&").associate {
                 val p = it.split("=")
                 URLDecoder.decode(p[0], "UTF-8") to URLDecoder.decode(p[1], "UTF-8")
@@ -101,7 +127,7 @@ class HomeRepository(
             val playResp = apiService.getPlayUrl(queryMap).execute()
             val playData = playResp.body()?.data ?: return@withContext Resource.Error("无法获取播放列表: ${playResp.errorBody()?.string()}")
 
-            // --- 6. 格式筛选与封装 (核心逻辑) ---
+            // --- 3. 格式筛选与封装 ---
             val videoOpts = mutableListOf<FormatOption>()
             val audioOpts = mutableListOf<FormatOption>()
 
@@ -112,7 +138,6 @@ class HomeRepository(
                     180L // 默认 3分钟
                 }
 
-                // A. 视频流处理
                 playData.dash.video.forEach { media ->
                     val qIndex = playData.accept_quality?.indexOf(media.id) ?: -1
                     val desc = if (qIndex >= 0 && qIndex < (playData.accept_description?.size ?: 0)) {
@@ -139,7 +164,6 @@ class HomeRepository(
                     )
                 }
 
-                // B. 常规音频流
                 playData.dash.audio?.forEach { media ->
                     val idMap = mapOf(30280 to "192K", 30232 to "132K", 30216 to "64K")
                     val name = idMap[media.id] ?: "普通音质 ${media.id}"
@@ -156,7 +180,6 @@ class HomeRepository(
                     )
                 }
 
-                // C. 杜比全景声 (Dolby Atmos)
                 playData.dash.dolby?.audio?.forEach { media ->
                     val estimatedSize = (media.bandwidth * durationInSeconds / 8)
                     audioOpts.add(
@@ -171,7 +194,6 @@ class HomeRepository(
                     )
                 }
 
-                // D. 无损 Hi-Res (FLAC)
                 val flacMedia = playData.dash.flac?.audio
                 if (flacMedia != null) {
                     val estimatedSize = (flacMedia.bandwidth * durationInSeconds / 8)
@@ -188,95 +210,17 @@ class HomeRepository(
                 }
             }
 
-            // 去重并按码率倒序排列，优先展示高质量
             val finalVideoOpts = videoOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
             val finalAudioOpts = audioOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
 
-            Resource.Success(
-                VideoAnalysisResult(
-                    detail = detail,
-                    videoFormats = finalVideoOpts,
-                    audioFormats = finalAudioOpts
-                )
-            )
-
+            Resource.Success(Pair(finalVideoOpts, finalAudioOpts))
         } catch (e: Exception) {
             e.printStackTrace()
-            Resource.Error("解析错误: ${e.message}")
+            Resource.Error("获取流地址失败: ${e.message}")
         }
     }
 
     // endregion
-
-    // region 2. Recommendation (推荐流业务)
-
-    /**
-     * 获取候选视频列表.
-     * 包含：WBI签名 -> 获取推荐 -> 本地去重 -> 补充 CID。
-     */
-    suspend fun fetchCandidateVideos(): Resource<List<CandidateVideo>> = withContext(Dispatchers.IO) {
-        try {
-            // 1. 获取 WBI 签名
-            val navResponse = apiService.getNavInfo().execute()
-            val navData = navResponse.body()?.data ?: return@withContext Resource.Error("无法获取 WBI 密钥")
-            val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
-            val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
-            val mixinKey = BiliSigner.getMixinKey(imgKey, subKey)
-
-            // 2. 请求推荐流
-            val params = TreeMap<String, Any>()
-            params["ps"] = 12
-            val signedQuery = BiliSigner.signParams(params, mixinKey)
-            val wts = params["wts"] as Long
-            val wRid = signedQuery.substringAfter("w_rid=")
-
-            val response = apiService.getRecommendFeed(wts, wRid)
-            if (response.code != 0 || response.data?.item == null) {
-                return@withContext Resource.Error(response.message ?: "获取推荐失败")
-            }
-
-            // 3. 数据处理与去重
-            val rawList = response.data.item
-            val validCandidates = mutableListOf<CandidateVideo>()
-
-            for (item in rawList) {
-                // A. 本地数据库布隆过滤：检查是否已评论过
-                if (commentedVideoDao.isProcessed(item.bvid)) continue
-
-                // B. 补充 CID 信息 (推荐流只返回了基础信息，无 CID 无法获取字幕)
-                try {
-                    val viewResp = apiService.getVideoView(item.bvid).execute()
-                    val videoDetail = viewResp.body()?.data
-                    val cid = videoDetail?.pages?.firstOrNull()?.cid
-
-                    if (cid != null) {
-                        validCandidates.add(CandidateVideo(item, null, cid))
-                    }
-                } catch (e: Exception) {
-                    continue // 单个视频解析失败不影响整体
-                }
-            }
-
-            if (validCandidates.isEmpty()) {
-                return@withContext Resource.Error("没有获取到新的推荐视频 (均已处理过)")
-            }
-
-            Resource.Success(validCandidates)
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Resource.Error("推荐流程异常: ${e.message}")
-        }
-    }
-
-    suspend fun markVideoAsProcessed(item: RecommendItem) {
-        val entity = CommentedVideoEntity(
-            bvid = item.bvid,
-            oid = item.id,
-            title = item.title
-        )
-        commentedVideoDao.insert(entity)
-    }
 
     suspend fun reportProgress(aid: Long, cid: Long) {
         try {
@@ -287,9 +231,7 @@ class HomeRepository(
         }
     }
 
-    // endregion
-
-    // region 3. Cloud History (云端历史记录) [NEW]
+    // region 3. Cloud History (云端历史记录)
 
     /**
      * 获取 B 站账号云端的视频播放历史.

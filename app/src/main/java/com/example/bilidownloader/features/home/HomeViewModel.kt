@@ -10,10 +10,7 @@ import com.example.bilidownloader.core.common.Resource
 import com.example.bilidownloader.core.database.HistoryEntity
 import com.example.bilidownloader.core.database.UserEntity
 import com.example.bilidownloader.core.manager.CookieManager
-import com.example.bilidownloader.core.model.CloudHistoryItem
-import com.example.bilidownloader.core.model.ConclusionData
-import com.example.bilidownloader.core.model.HistoryCursor
-import com.example.bilidownloader.core.model.VideoDetail
+import com.example.bilidownloader.core.model.*
 import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.util.StorageHelper
 import com.example.bilidownloader.features.login.AuthRepository
@@ -300,9 +297,10 @@ class HomeViewModel(
             when (val resource = homeRepository.analyzeVideo(input)) {
                 is Resource.Success -> {
                     val result = resource.data!!
+                    val firstPage = result.detail.pages.first()
                     currentDetail = result.detail
                     currentBvid = result.detail.bvid
-                    currentCid = result.detail.pages[0].cid
+                    currentCid = firstPage.cid
                     savedVideoOption = result.videoFormats.firstOrNull()
                     savedAudioOption = result.audioFormats.firstOrNull()
                     _state.value = HomeState.ChoiceSelect(
@@ -310,11 +308,47 @@ class HomeViewModel(
                         videoFormats = result.videoFormats,
                         audioFormats = result.audioFormats,
                         selectedVideo = savedVideoOption,
-                        selectedAudio = savedAudioOption
+                        selectedAudio = savedAudioOption,
+                        selectedPage = firstPage
                     )
                 }
                 is Resource.Error -> _state.value =
                     HomeState.Error(resource.message ?: "未知解析错误")
+                else -> {}
+            }
+        }
+    }
+
+    fun updateSelectedPage(page: PageData) {
+        val currentState = _state.value
+        if (currentState !is HomeState.ChoiceSelect || page.cid == currentCid) return
+
+        viewModelScope.launch {
+            // 设置正在分析状态（可选，也可以在当前 UI 上加 Loading）
+            // 这里简单处理，直接去请求新分P的流地址
+            currentCid = page.cid
+            when (val result = homeRepository.fetchVideoFormats(currentBvid, page.cid)) {
+                is Resource.Success -> {
+                    val formats = result.data!!
+                    savedVideoOption = formats.first.firstOrNull()
+                    savedAudioOption = formats.second.firstOrNull()
+                    _state.value = currentState.copy(
+                        selectedPage = page,
+                        videoFormats = formats.first,
+                        audioFormats = formats.second,
+                        selectedVideo = savedVideoOption,
+                        selectedAudio = savedAudioOption,
+                        // 切换分P后重置字幕状态
+                        subtitleData = null,
+                        subtitleContent = "",
+                        isSubtitleLoading = false
+                    )
+                }
+
+                is Resource.Error -> {
+                    showToast("切换分P失败: ${result.message}")
+                }
+
                 else -> {}
             }
         }
@@ -338,6 +372,11 @@ class HomeViewModel(
             putExtra("vcodec", vOpt?.codecs)
             putExtra("aid", aOpt.id)
             putExtra("acodec", aOpt.codecs)
+            // 传入分P标题以便重命名
+            val currentState = _state.value as? HomeState.ChoiceSelect
+            if (currentState != null && currentState.detail.pages.size > 1) {
+                putExtra("p_title", currentState.selectedPage.part)
+            }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
@@ -488,18 +527,8 @@ class HomeViewModel(
     private fun formatSubtitleText(data: ConclusionData?, index: Int, showTimestamp: Boolean): String {
         if (data == null) return ""
         val sb = StringBuilder()
-        if (!data.modelResult?.summary.isNullOrEmpty()) sb.append("【AI 摘要】\n${data.modelResult?.summary}\n\n")
-        if (!data.modelResult?.outline.isNullOrEmpty()) {
-            sb.append("【视频大纲】\n")
-            data.modelResult?.outline?.forEach { item ->
-                if (showTimestamp) sb.append("${formatTime(item.timestamp)} ")
-                sb.append("${item.title}\n")
-            }
-            sb.append("\n")
-        }
         val subtitles = data.modelResult?.subtitle
         if (!subtitles.isNullOrEmpty() && index < subtitles.size) {
-            sb.append("【字幕内容】\n")
             subtitles[index].partSubtitle?.forEach { item ->
                 if (showTimestamp) sb.append("[${formatTime(item.startTimestamp)}] ")
                 sb.append("${item.content}\n")

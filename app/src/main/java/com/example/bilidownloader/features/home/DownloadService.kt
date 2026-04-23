@@ -56,17 +56,19 @@ class DownloadService : Service() {
                 val audioOnly = intent.getBooleanExtra(EXTRA_AUDIO_ONLY, false)
 
                 // 接收简化参数
-                val vid = intent.getIntExtra("vid", 0)
+                val vid = intent.getSerializableExtra("vid") as? Int
                 val vcodec = intent.getStringExtra("vcodec")
                 val aid = intent.getIntExtra("aid", 0)
                 val acodec = intent.getStringExtra("acodec")
+                val pTitle = intent.getStringExtra("p_title")
 
                 if (bvid.isNotEmpty()) {
                     val params = DownloadRepository.DownloadParams(
                         bvid, cid,
-                        if(vid == 0) null else vid,
+                        vid,
                         vcodec,
-                        aid, acodec, audioOnly
+                        aid, acodec, audioOnly,
+                        pTitle
                     )
                     startDownload(params)
                 }

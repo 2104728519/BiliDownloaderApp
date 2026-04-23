@@ -4,9 +4,6 @@ import android.content.Context
 import com.example.bilidownloader.core.database.AppDatabase
 import com.example.bilidownloader.core.database.FfmpegPresetDao // [新增] 导入 DAO
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.features.aicomment.CommentRepository
-import com.example.bilidownloader.features.aicomment.LlmRepository
-import com.example.bilidownloader.features.aicomment.StyleRepository
 import com.example.bilidownloader.features.ffmpeg.FfmpegRepository
 import com.example.bilidownloader.features.home.DownloadRepository
 import com.example.bilidownloader.features.home.HistoryRepository
@@ -27,11 +24,6 @@ interface AppContainer {
     val historyRepository: HistoryRepository   // 历史记录
     val authRepository: AuthRepository         // 认证与用户信息
     val subtitleRepository: SubtitleRepository // 字幕处理
-
-    // --- AI 评论功能 Repository ---
-    val commentRepository: CommentRepository
-    val llmRepository: LlmRepository
-    val styleRepository: StyleRepository
 
     // --- 工具与媒体处理 Repository ---
     val ffmpegRepository: FfmpegRepository   // FFmpeg 视频处理
@@ -56,10 +48,6 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     private val biliApiService = NetworkModule.biliService
 
-    private val commentedVideoDao by lazy {
-        database.commentedVideoDao()
-    }
-
     // endregion
 
     // region Repository 实例化实现
@@ -82,19 +70,7 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val homeRepository by lazy {
         // HomeRepository 聚合了推荐流获取和视频解析功能，需访问历史记录 DAO
-        HomeRepository(context, commentedVideoDao, database.historyDao())
-    }
-
-    override val commentRepository by lazy {
-        CommentRepository(context)
-    }
-
-    override val llmRepository by lazy {
-        LlmRepository()
-    }
-
-    override val styleRepository by lazy {
-        StyleRepository(database.customStyleDao())
+        HomeRepository(context, database.historyDao())
     }
 
     override val ffmpegRepository by lazy {

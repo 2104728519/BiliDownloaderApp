@@ -17,7 +17,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.bilidownloader.core.util.StorageHelper
-import com.example.bilidownloader.features.aicomment.AiCommentScreen
 import com.example.bilidownloader.features.ffmpeg.FfmpegScreen
 import com.example.bilidownloader.features.home.HomeScreen
 import com.example.bilidownloader.features.login.LoginScreen
@@ -119,15 +118,7 @@ fun MainScreen() {
                 ToolsScreen(
                     onNavigateToAudioCrop = { navController.navigate("audio_picker") },
                     onNavigateToTranscription = { navController.navigate("audio_picker_transcribe") },
-                    onNavigateToAiComment = { navController.navigate("ai_comment") },
                     onNavigateToFfmpeg = { navController.navigate("ffmpeg_terminal") }
-                )
-            }
-
-            // AI 评论生成器
-            composable("ai_comment") {
-                AiCommentScreen(
-                    onBack = { navController.popBackStack() }
                 )
             }
 

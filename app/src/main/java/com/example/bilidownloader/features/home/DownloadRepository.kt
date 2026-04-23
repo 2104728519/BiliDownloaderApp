@@ -44,7 +44,8 @@ class DownloadRepository(private val context: Context) {
         val videoCodecs: String?,
         val audioId: Int,      // 音频流 ID
         val audioCodecs: String?,
-        val audioOnly: Boolean
+        val audioOnly: Boolean,
+        val pageTitle: String? = null // 分P标题
     )
 
     /**
@@ -88,11 +89,15 @@ class DownloadRepository(private val context: Context) {
             // 使用简单的临时文件名，避免特殊字符问题
             audioFile = File(cacheDir, "${params.bvid}_${params.cid}_audio.tmp")
 
+            // 格式化文件名，加入分P标题
+            val titleSuffix = if (params.pageTitle.isNullOrEmpty()) "" else "_${params.pageTitle}"
+            val safeTitleSuffix = titleSuffix.replace("[\\\\/:*?\"<>|]".toRegex(), "_")
+
             // ================================================================
             // 分支 A: 仅下载音频 (Audio Only Mode)
             // ================================================================
             if (params.audioOnly) {
-                val outAudio = File(cacheDir, "${params.bvid}_out$audioSuffix")
+                val outAudio = File(cacheDir, "${params.bvid}_${params.cid}_out$audioSuffix")
 
                 // 下载音频
                 downloadFile(audioUrl, audioFile).collect { p ->
@@ -111,7 +116,11 @@ class DownloadRepository(private val context: Context) {
                 if (!success) throw Exception("音频处理失败")
 
                 // 保存到音乐库
-                StorageHelper.saveAudioToMusic(context, outAudio, "Bili_${params.bvid}$audioSuffix")
+                StorageHelper.saveAudioToMusic(
+                    context,
+                    outAudio,
+                    "Bili_${params.bvid}${safeTitleSuffix}$audioSuffix"
+                )
 
                 // 清理
                 outAudio.delete()
@@ -130,7 +139,7 @@ class DownloadRepository(private val context: Context) {
                     ?: throw Exception("未找到视频流")
 
                 videoFile = File(cacheDir, "${params.bvid}_${params.cid}_video.tmp")
-                outMp4 = File(cacheDir, "${params.bvid}_final.mp4")
+                outMp4 = File(cacheDir, "${params.bvid}_${params.cid}_final.mp4")
 
                 // 1. 下载视频流 (权重 45%)
                 downloadFile(videoUrl, videoFile).collect { p ->
@@ -150,7 +159,11 @@ class DownloadRepository(private val context: Context) {
 
                 // 4. 保存到相册
                 emit(Resource.Loading(0.99f, "正在保存..."))
-                StorageHelper.saveVideoToGallery(context, outMp4, "Bili_${params.bvid}.mp4")
+                StorageHelper.saveVideoToGallery(
+                    context,
+                    outMp4,
+                    "Bili_${params.bvid}${safeTitleSuffix}.mp4"
+                )
 
                 // 清理
                 outMp4.delete()

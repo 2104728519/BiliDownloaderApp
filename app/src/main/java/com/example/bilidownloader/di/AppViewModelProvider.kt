@@ -6,7 +6,6 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.bilidownloader.MyApplication
-import com.example.bilidownloader.features.aicomment.AiCommentViewModel
 import com.example.bilidownloader.features.ffmpeg.FfmpegViewModel
 import com.example.bilidownloader.features.home.HomeViewModel
 import com.example.bilidownloader.features.login.LoginViewModel
@@ -41,18 +40,6 @@ object AppViewModelProvider {
             LoginViewModel(
                 application = app,
                 authRepository = app.container.authRepository
-            )
-        }
-
-        // --- AI 评论分析模块 ---
-        initializer {
-            val container = bilidownloaderApplication().container
-            AiCommentViewModel(
-                homeRepository = container.homeRepository,
-                subtitleRepository = container.subtitleRepository,
-                llmRepository = container.llmRepository,
-                commentRepository = container.commentRepository,
-                styleRepository = container.styleRepository
             )
         }
 
