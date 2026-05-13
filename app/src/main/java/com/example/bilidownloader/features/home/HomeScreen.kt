@@ -3,25 +3,15 @@ package com.example.bilidownloader.features.home
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
-import android.view.ViewGroup
-import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -30,29 +20,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.bilidownloader.core.database.HistoryEntity
-import com.example.bilidownloader.core.database.UserEntity
-import com.example.bilidownloader.core.model.CloudHistoryItem
-import com.example.bilidownloader.core.model.PageData
 import com.example.bilidownloader.di.AppViewModelProvider
-import com.example.bilidownloader.features.home.components.BiliWebPlayer
-import com.example.bilidownloader.features.home.components.HistoryItem
+import com.example.bilidownloader.features.home.components.*
 
 /**
  * 首页主屏幕 (HomeScreen).
@@ -61,7 +42,7 @@ import com.example.bilidownloader.features.home.components.HistoryItem
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = viewModel(factory = AppViewModelProvider.Factory),
-    onNavigateToTranscribe: (String, String) -> Unit, // (path, title)
+    onNavigateToTranscribe: (String, String) -> Unit,
     onNavigateToLogin: () -> Unit
 ) {
     val context = LocalContext.current
@@ -91,7 +72,6 @@ fun HomeScreen(
     val cloudHistoryList by viewModel.cloudHistoryList.collectAsState()
     val isCloudHistoryLoading by viewModel.isCloudHistoryLoading.collectAsState()
     val cloudHistoryError by viewModel.cloudHistoryError.collectAsState()
-
 
     // --- UI 内部状态 ---
     var inputText by remember { mutableStateOf("") }
@@ -168,10 +148,9 @@ fun HomeScreen(
                         TextButton(onClick = {
                             showManualCookieInput = true; showAccountDialog = false
                         }) {
-                            Icon(
-                                Icons.Default.Add,
-                                null
-                            ); Spacer(modifier = Modifier.width(4.dp)); Text("手动添加")
+                            Icon(Icons.Default.Add, null)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("手动添加")
                         }
                         if (currentUser != null) {
                             TextButton(
@@ -253,10 +232,7 @@ fun HomeScreen(
                 navigationIcon = {
                     if (state !is HomeState.Idle && !isSelectionMode) {
                         IconButton(onClick = { viewModel.reset() }) {
-                            Icon(
-                                Icons.Default.ArrowBack,
-                                "返回"
-                            )
+                            Icon(Icons.Default.ArrowBack, "返回")
                         }
                     }
                 },
@@ -363,9 +339,8 @@ fun HomeScreen(
                                             },
                                             onLongClick = {
                                                 if (!isSelectionMode) {
-                                                    isSelectionMode = true; selectedItems.add(
-                                                        history
-                                                    )
+                                                    isSelectionMode = true
+                                                    selectedItems.add(history)
                                                 }
                                             }
                                         )
@@ -409,7 +384,6 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(currentState.detail.title, style = MaterialTheme.typography.titleMedium)
 
-                        // [新增] 分P选择器
                         if (currentState.detail.pages.size > 1) {
                             Spacer(modifier = Modifier.height(8.dp))
                             PageSelector(
@@ -440,9 +414,9 @@ fun HomeScreen(
                                 contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                         ) {
-                            Icon(Icons.Default.AutoAwesome, null, Modifier.size(18.dp)); Spacer(
-                            Modifier.width(8.dp)
-                        ); Text("AI 智能摘要 / 字幕")
+                            Icon(Icons.Default.AutoAwesome, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("AI 智能摘要 / 字幕")
                         }
                         Spacer(modifier = Modifier.height(48.dp))
                     }
@@ -467,9 +441,7 @@ fun HomeScreen(
                         val isDownloadingPhase = currentState.progress < 0.9f
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             if (currentState.info.contains("暂停")) Button(onClick = { viewModel.resumeDownload() }) {
-                                Text(
-                                    "继续"
-                                )
+                                Text("继续")
                             }
                             else OutlinedButton(
                                 onClick = { viewModel.pauseDownload() },
@@ -497,472 +469,6 @@ fun HomeScreen(
                         Button(onClick = { viewModel.reset() }, modifier = Modifier.padding(top = 24.dp)) { Text("重试") }
                     }
                 }
-            }
-        }
-    }
-}
-
-/**
- * 分P选择器组件 (可折叠).
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun PageSelector(
-    pages: List<PageData>,
-    selectedPage: PageData,
-    onPageSelected: (PageData) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Surface(
-            onClick = { expanded = !expanded },
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "当前分P: P${selectedPage.page} ${selectedPage.part}",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Icon(
-                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null
-                )
-            }
-        }
-
-        AnimatedVisibility(visible = expanded) {
-            Column {
-                Spacer(Modifier.height(8.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    pages.forEach { page ->
-                        val isSelected = page.cid == selectedPage.cid
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                onPageSelected(page)
-                                expanded = false
-                            },
-                            label = { Text("P${page.page}") },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * AI 摘要与字幕弹窗.
- */
-@Composable
-fun SubtitleDialog(
-    currentState: HomeState.ChoiceSelect,
-    viewModel: HomeViewModel,
-    onDismiss: () -> Unit,
-    onNavigateToTranscribe: (String, String) -> Unit
-) {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-
-    if (currentState.subtitleContent.startsWith("ERROR:")) {
-        val errorMsg = currentState.subtitleContent.removePrefix("ERROR:")
-        LaunchedEffect(errorMsg) {
-            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG)
-                .show(); viewModel.consumeSubtitleError()
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.85f)
-                .padding(vertical = 24.dp),
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(modifier = Modifier
-                .padding(16.dp)
-                .fillMaxSize()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (currentState.subtitleData != null) IconButton(onClick = { viewModel.clearSubtitleState() }) {
-                            Icon(Icons.Default.ArrowBack, "重选")
-                        }
-                        else {
-                            Icon(
-                                Icons.Default.AutoAwesome,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(
-                            if (currentState.subtitleData != null) "字幕详情" else "AI 摘要 & 字幕",
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                    }
-                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "关闭") }
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (currentState.isSubtitleLoading) CircularProgressIndicator()
-                    else if (currentState.subtitleData == null) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.Subtitles, null, Modifier.size(64.dp), MaterialTheme.colorScheme.outline)
-                            Spacer(Modifier.height(16.dp))
-                            Text("获取视频的 AI 总结与字幕", style = MaterialTheme.typography.bodyLarge)
-                            Spacer(Modifier.height(24.dp))
-                            Button(onClick = { viewModel.fetchSubtitle() }) { Text("立即获取 (B站 API)") }
-                            Spacer(Modifier.height(16.dp))
-                            Text("或者", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                            Spacer(Modifier.height(16.dp))
-
-                            OutlinedButton(onClick = {
-                                val savedTitle = currentState.detail.title
-                                viewModel.prepareForTranscription { path ->
-                                    onNavigateToTranscribe(
-                                        path,
-                                        savedTitle
-                                    )
-                                }
-                            }) { Text("没有字幕？试试阿里云转写") }
-                        }
-                    } else {
-                        OutlinedTextField(
-                            value = currentState.subtitleContent,
-                            onValueChange = { viewModel.updateSubtitleContent(it) },
-                            modifier = Modifier.fillMaxSize(),
-                            textStyle = MaterialTheme.typography.bodyMedium.copy(lineHeight = MaterialTheme.typography.bodyMedium.fontSize * 1.5),
-                            label = { Text("预览与编辑") }
-                        )
-                    }
-                }
-                if (currentState.subtitleData != null) {
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Switch(
-                                checked = currentState.isTimestampEnabled,
-                                onCheckedChange = { viewModel.toggleTimestamp(it) },
-                                modifier = Modifier.scale(0.8f)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text("时间轴", style = MaterialTheme.typography.bodyMedium)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { viewModel.exportSubtitle(currentState.subtitleContent) }) {
-                                Icon(
-                                    Icons.Default.SaveAlt,
-                                    "导出为TXT",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Button(onClick = {
-                                clipboardManager.setText(AnnotatedString(currentState.subtitleContent));
-                                Toast.makeText(context, "内容已复制", Toast.LENGTH_SHORT).show();
-                                onDismiss()
-                            }) {
-                                Icon(Icons.Default.ContentCopy, null, Modifier.size(16.dp)); Spacer(
-                                Modifier.width(8.dp)
-                            ); Text("复制并关闭")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ColumnScope.CloudHistoryContent(
-    viewModel: HomeViewModel,
-    currentUser: UserEntity?,
-    cloudHistoryList: List<CloudHistoryItem>,
-    isCloudHistoryLoading: Boolean,
-    cloudHistoryError: String?,
-    onLoginClick: () -> Unit
-) {
-    val cloudListState = rememberLazyListState()
-
-    LaunchedEffect(cloudListState) {
-        snapshotFlow { cloudListState.layoutInfo.visibleItemsInfo }
-            .collect { visibleItems ->
-                if (visibleItems.isNotEmpty() && visibleItems.last().index >= cloudHistoryList.size - 3) {
-                    viewModel.loadMoreCloudHistory()
-                }
-            }
-    }
-
-    Box(modifier = Modifier
-        .weight(1f)
-        .padding(top = 8.dp)
-        .fillMaxWidth()) {
-        when {
-            currentUser == null -> {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Icon(
-                        Icons.Default.PersonOff,
-                        null,
-                        Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.outline
-                    )
-                    Text("登录后可查看云端播放历史", color = MaterialTheme.colorScheme.outline)
-                    Button(onClick = onLoginClick) { Text("添加账号/登录") }
-                }
-            }
-            isCloudHistoryLoading && cloudHistoryList.isEmpty() -> {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            }
-            cloudHistoryError != null && cloudHistoryList.isEmpty() -> {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("加载失败", color = MaterialTheme.colorScheme.error)
-                    Text(cloudHistoryError, color = MaterialTheme.colorScheme.outline)
-                    Button(onClick = { viewModel.refreshCloudHistory() }) { Text("重试") }
-                }
-            }
-            else -> {
-                LazyColumn(
-                    state = cloudListState,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(cloudHistoryList, key = { it.kid }) { item ->
-                        CloudHistoryItem(
-                            item = item,
-                            onClick = { viewModel.analyzeInput(item.bvid) },
-                            onLongClick = { }
-                        )
-                    }
-                    if (isCloudHistoryLoading && cloudHistoryList.isNotEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun CloudHistoryItem(item: CloudHistoryItem, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(90.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = {
-                    clipboardManager.setText(AnnotatedString(item.bvid))
-                    Toast.makeText(context, "BV号已复制: ${item.bvid}", Toast.LENGTH_SHORT).show()
-                    onLongClick()
-                }
-            ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            AsyncImage(
-                model = item.cover.replace("http://", "https://"),
-                contentDescription = "视频封面",
-                modifier = Modifier
-                    .width(140.dp)
-                    .fillMaxHeight(),
-                contentScale = ContentScale.Crop
-            )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(8.dp)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Column {
-                    Text(
-                        text = "UP: ${item.author_name}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Text(
-                        text = item.viewDateText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ManualDialog(onDismiss: () -> Unit) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("用户使用手册") },
-                    actions = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                Icons.Default.Close,
-                                "关闭"
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                )
-            }
-        ) { padding ->
-            AndroidView(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                factory = { context ->
-                    WebView(context).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            allowFileAccess = true
-                        }
-                        webViewClient = WebViewClient()
-                        webChromeClient = WebChromeClient()
-                        loadUrl("file:///android_asset/docs/index.html")
-                    }
-                }
-            )
-        }
-    }
-}
-
-fun Modifier.scale(scale: Float): Modifier = this.then(Modifier.graphicsLayer(scaleX = scale, scaleY = scale))
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun AccountItem(user: UserEntity, isCurrent: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, onDelete: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        AsyncImage(
-            model = user.face,
-            contentDescription = "用户头像",
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                user.name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-            )
-        }
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Default.Close,
-                "注销",
-                tint = MaterialTheme.colorScheme.outline
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun QualitySelector(label: String, options: List<FormatOption>, selectedOption: FormatOption?, onOptionSelected: (FormatOption) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-        OutlinedTextField(
-            value = selectedOption?.label ?: "无可用选项",
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor()
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option.label) },
-                    onClick = { onOptionSelected(option); expanded = false })
             }
         }
     }
