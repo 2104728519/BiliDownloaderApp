@@ -7,7 +7,6 @@ plugins {
     // KSP 插件，用来自动生成数据库代码
     id("com.google.devtools.ksp") version "1.9.23-1.0.20"
 }
-
 // 读取 local.properties 文件
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
@@ -24,7 +23,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 24
-        versionName = "2.5.0"
+        versionName = "2.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

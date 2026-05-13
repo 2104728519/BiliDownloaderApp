@@ -20,19 +20,19 @@ object FFmpegHelper {
     /**
      * 合并独立的视频流和音频流.
      *
-     * 采用 `-c:v copy` 快速流复制视频，音频统一转码为 320k AAC 以保证兼容性。
+     * 优化：采用 `-c copy` 直接流复制，不进行重编码，速度提升巨大。
      * @param videoFile 纯视频轨道文件.
      * @param audioFile 纯音频轨道文件.
      * @param outFile 输出文件路径.
      */
     suspend fun mergeVideoAudio(videoFile: File, audioFile: File, outFile: File): Boolean {
-        // FFmpegKit 命令不需要 "ffmpeg" 前缀，且路径建议加引号防止空格问题
+        // 使用 -c copy 极速合并，B站DASH流音视频格式通常已兼容 MP4 容器
         val command = "-y " +
                 "-i \"${videoFile.absolutePath}\" " +
                 "-i \"${audioFile.absolutePath}\" " +
-                "-c:v copy " +
-                "-c:a aac " +
-                "-b:a 320k " +
+                "-c copy " +
+                "-map 0:v:0 " +
+                "-map 1:a:0 " +
                 "-strict experimental " +
                 "\"${outFile.absolutePath}\""
 
