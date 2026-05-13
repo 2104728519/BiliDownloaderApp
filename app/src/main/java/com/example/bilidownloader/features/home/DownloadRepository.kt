@@ -41,7 +41,8 @@ class DownloadRepository(private val context: Context) {
         val audioId: Int,      // 音频流 ID
         val audioCodecs: String?,
         val audioOnly: Boolean,
-        val pageTitle: String? = null // 分P标题
+        val pageTitle: String? = null, // 分P标题
+        val audioExtension: String? = null // 新增：音频扩展名 (m4a, mp3)
     )
 
     /**
@@ -77,7 +78,13 @@ class DownloadRepository(private val context: Context) {
             ?: dash.audio?.firstOrNull()?.baseUrl
             ?: throw Exception("未找到音频流")
 
-            val audioSuffix = if (params.audioCodecs == "flac") ".flac" else ".mp3"
+            // 确定输出后缀
+            val audioSuffix = if (params.audioCodecs == "flac") {
+                ".flac"
+            } else {
+                if (params.audioExtension != null) ".${params.audioExtension}" else ".mp3"
+            }
+            
             audioFile = File(cacheDir, "${params.bvid}_${params.cid}_audio.tmp")
 
             val titleSuffix = if (params.pageTitle.isNullOrEmpty()) "" else "_${params.pageTitle}"
@@ -93,11 +100,18 @@ class DownloadRepository(private val context: Context) {
                 }
 
                 emit(Resource.Loading(0.95f, "正在转码/封装..."))
-                val success = if (params.audioCodecs == "flac") {
-                    FFmpegHelper.remuxToFlac(audioFile, outAudio)
-                } else {
-                    FFmpegHelper.convertAudioToMp3(audioFile, outAudio)
+                val success = when {
+                    params.audioCodecs == "flac" -> FFmpegHelper.remuxToFlac(audioFile, outAudio)
+                    audioSuffix == ".m4a" -> FFmpegHelper.remuxToFlac(
+                        audioFile,
+                        outAudio
+                    ) // m4a 也可以用 remuxToFlac 的 copy 命令逻辑
+                    else -> FFmpegHelper.convertAudioToMp3(audioFile, outAudio)
                 }
+
+                // 修正：如果 remuxToFlac 的名字不贴切，其实就是 -c copy
+                // 为清晰起见，如果是 m4a 且使用 copy，逻辑是一样的。
+
                 if (!success) throw Exception("音频处理失败")
 
                 StorageHelper.saveAudioToMusic(

@@ -61,6 +61,7 @@ class DownloadService : Service() {
                 val aid = intent.getIntExtra("aid", 0)
                 val acodec = intent.getStringExtra("acodec")
                 val pTitle = intent.getStringExtra("p_title")
+                val audioExt = intent.getStringExtra("audio_ext")
 
                 if (bvid.isNotEmpty()) {
                     val params = DownloadRepository.DownloadParams(
@@ -68,7 +69,8 @@ class DownloadService : Service() {
                         vid,
                         vcodec,
                         aid, acodec, audioOnly,
-                        pTitle
+                        pTitle,
+                        audioExt
                     )
                     startDownload(params)
                 }
@@ -135,7 +137,6 @@ class DownloadService : Service() {
         }
     }
 
-    // ... (pauseDownload, cancelDownload, updateNotification, buildNotification, createNotificationChannel, onDestroy 保持不变) ...
     private fun pauseDownload() {
         if (downloadJob?.isActive == true) {
             downloadJob?.cancel()

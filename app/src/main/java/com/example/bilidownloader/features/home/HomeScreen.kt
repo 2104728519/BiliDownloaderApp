@@ -401,14 +401,108 @@ fun HomeScreen(
                         QualitySelector("视频画质", currentState.videoFormats, currentState.selectedVideo) { viewModel.updateSelectedVideo(it) }
                         Spacer(modifier = Modifier.height(8.dp))
                         QualitySelector("音频音质", currentState.audioFormats, currentState.selectedAudio) { viewModel.updateSelectedAudio(it) }
+
+                        // --- 新增：音频格式选择 UI ---
+                        val isSourceFlac =
+                            currentState.selectedAudio?.codecs?.contains("flac") == true
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "保存格式",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+
+                            if (isSourceFlac) {
+                                // 如果源是 FLAC，显示无损标识
+                                Surface(
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    shape = MaterialTheme.shapes.small
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(
+                                            horizontal = 12.dp,
+                                            vertical = 6.dp
+                                        ),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.MusicNote,
+                                            null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "FLAC 原声无损",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                                        )
+                                    }
+                                }
+                            } else {
+                                // 普通 AAC 流，提供分段选择器
+                                SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
+                                    SegmentedButton(
+                                        selected = currentState.selectedAudioExtension == "m4a",
+                                        onClick = { viewModel.updateAudioExtension("m4a") },
+                                        shape = SegmentedButtonDefaults.itemShape(
+                                            index = 0,
+                                            count = 2
+                                        ),
+                                        icon = {}
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text("M4A", style = MaterialTheme.typography.bodySmall)
+                                            Text(
+                                                "极速无损",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.outline
+                                            )
+                                        }
+                                    }
+                                    SegmentedButton(
+                                        selected = currentState.selectedAudioExtension == "mp3",
+                                        onClick = { viewModel.updateAudioExtension("mp3") },
+                                        shape = SegmentedButtonDefaults.itemShape(
+                                            index = 1,
+                                            count = 2
+                                        ),
+                                        icon = {}
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text("MP3", style = MaterialTheme.typography.bodySmall)
+                                            Text(
+                                                "兼容性好",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.outline
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(24.dp))
-                        Button(onClick = { viewModel.startDownload(false) }, modifier = Modifier.fillMaxWidth()) { Text("下载 MP4") }
+                        Button(
+                            onClick = { viewModel.startDownload(false) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("下载 MP4 视频") }
                         OutlinedButton(
                             onClick = { viewModel.startDownload(true) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp)
-                        ) { Text("仅下载音频") }
+                        ) {
+                            val ext =
+                                if (isSourceFlac) "FLAC" else currentState.selectedAudioExtension.uppercase()
+                            Text("仅下载音频 (.$ext)")
+                        }
+
                         Spacer(modifier = Modifier.height(16.dp))
                         FilledTonalButton(
                             onClick = { showSubtitleDialog = true },

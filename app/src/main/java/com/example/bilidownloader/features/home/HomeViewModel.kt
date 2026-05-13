@@ -89,6 +89,7 @@ class HomeViewModel(
     private var isLastDownloadAudioOnly: Boolean = false
     private var savedVideoOption: FormatOption? = null
     private var savedAudioOption: FormatOption? = null
+    private var savedAudioExtension: String = "m4a"
 
     init {
         // 1. 监听全局下载状态 (Service -> Session -> ViewModel)
@@ -320,13 +321,15 @@ class HomeViewModel(
                     currentCid = firstPage.cid
                     savedVideoOption = result.videoFormats.firstOrNull()
                     savedAudioOption = result.audioFormats.firstOrNull()
+                    savedAudioExtension = "m4a" // 重置默认扩展名
                     _state.value = HomeState.ChoiceSelect(
                         detail = result.detail,
                         videoFormats = result.videoFormats,
                         audioFormats = result.audioFormats,
                         selectedVideo = savedVideoOption,
                         selectedAudio = savedAudioOption,
-                        selectedPage = firstPage
+                        selectedPage = firstPage,
+                        selectedAudioExtension = savedAudioExtension
                     )
                 }
                 is Resource.Error -> _state.value =
@@ -389,6 +392,10 @@ class HomeViewModel(
             putExtra("vcodec", vOpt?.codecs)
             putExtra("aid", aOpt.id)
             putExtra("acodec", aOpt.codecs)
+            // 传入音频扩展名选项
+            if (audioOnly) {
+                putExtra("audio_ext", savedAudioExtension)
+            }
             // 传入分P标题以便重命名
             val currentState = _state.value as? HomeState.ChoiceSelect
             if (currentState != null && currentState.detail.pages.size > 1) {
@@ -533,6 +540,12 @@ class HomeViewModel(
         savedAudioOption = option
         val cur = _state.value
         if (cur is HomeState.ChoiceSelect) _state.value = cur.copy(selectedAudio = option)
+    }
+
+    fun updateAudioExtension(ext: String) {
+        savedAudioExtension = ext
+        val cur = _state.value
+        if (cur is HomeState.ChoiceSelect) _state.value = cur.copy(selectedAudioExtension = ext)
     }
 
     private suspend fun showToast(msg: String) {

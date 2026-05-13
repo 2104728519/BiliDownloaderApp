@@ -37,6 +37,9 @@ sealed class HomeState {
         val selectedAudio: FormatOption?,
         val selectedPage: PageData, // 当前选中的分P
 
+        // 新增：选中的音频扩展名，默认为 m4a (快且无损)
+        val selectedAudioExtension: String = "m4a",
+
         // --- 字幕与 AI 摘要相关状态 ---
         val isSubtitleLoading: Boolean = false, // 是否正在请求字幕
         val subtitleData: ConclusionData? = null, // 字幕原始数据
