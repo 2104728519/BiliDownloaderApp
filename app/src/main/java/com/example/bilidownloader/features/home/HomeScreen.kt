@@ -402,7 +402,7 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         QualitySelector("音频音质", currentState.audioFormats, currentState.selectedAudio) { viewModel.updateSelectedAudio(it) }
 
-                        // --- 新增：音频格式选择 UI ---
+                        // --- 音频格式选择 UI ---
                         val isSourceFlac =
                             currentState.selectedAudio?.codecs?.contains("flac") == true
                         Spacer(modifier = Modifier.height(12.dp))
@@ -551,7 +551,9 @@ fun HomeScreen(
                             )
                         } else {
                             Spacer(modifier = Modifier.height(20.dp))
-                            Text("音视频封装合并中...", style = MaterialTheme.typography.bodyMedium)
+                            val mergeText =
+                                if (currentState.info.contains("音频")) "正在处理音频格式..." else "音视频封装合并中..."
+                            Text(mergeText, style = MaterialTheme.typography.bodyMedium)
                             LinearProgressIndicator(
                                 progress = { currentState.mergeProgress },
                                 modifier = Modifier

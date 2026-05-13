@@ -51,19 +51,29 @@ object FFmpegHelper {
      * 封装为 FLAC 无损音频.
      * 直接流复制，不进行重编码。
      */
-    suspend fun remuxToFlac(inputFile: File, outFile: File): Boolean {
+    suspend fun remuxToFlac(
+        inputFile: File,
+        outFile: File,
+        durationMs: Long = 0,
+        onProgress: ((Float) -> Unit)? = null
+    ): Boolean {
         val command = "-y " +
                 "-i \"${inputFile.absolutePath}\" " +
                 "-c copy " +
                 "\"${outFile.absolutePath}\""
 
-        return runCommand(command)
+        return runCommand(command, durationMs, onProgress)
     }
 
     /**
      * 音频转码为 MP3 (VBR 高质量).
      */
-    suspend fun convertAudioToMp3(audioFile: File, outFile: File): Boolean {
+    suspend fun convertAudioToMp3(
+        audioFile: File,
+        outFile: File,
+        durationMs: Long = 0,
+        onProgress: ((Float) -> Unit)? = null
+    ): Boolean {
         val command = "-y " +
                 "-i \"${audioFile.absolutePath}\" " +
                 "-vn " + // 禁用视频流
@@ -71,7 +81,7 @@ object FFmpegHelper {
                 "-q:a 2 " + // VBR 质量等级 2
                 "\"${outFile.absolutePath}\""
 
-        return runCommand(command)
+        return runCommand(command, durationMs, onProgress)
     }
 
     /**

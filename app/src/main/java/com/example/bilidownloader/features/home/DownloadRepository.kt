@@ -96,21 +96,38 @@ class DownloadRepository(private val context: Context) {
                 downloadFile(audioUrl, audioFile).collect { (current, total) ->
                     val progress = if (total > 0) current.toFloat() / total.toFloat() else 0f
                     val detail = "${formatSize(current)} / ${formatSize(total)}"
-                    emit(Resource.Loading(progress * 0.9f, "下载音频中...|DETAIL:$detail"))
+                    emit(Resource.Loading(progress, "下载音频流...|DETAIL:$detail"))
                 }
 
-                emit(Resource.Loading(0.95f, "正在转码/封装..."))
-                val success = when {
-                    params.audioCodecs == "flac" -> FFmpegHelper.remuxToFlac(audioFile, outAudio)
-                    audioSuffix == ".m4a" -> FFmpegHelper.remuxToFlac(
-                        audioFile,
-                        outAudio
-                    ) // m4a 也可以用 remuxToFlac 的 copy 命令逻辑
-                    else -> FFmpegHelper.convertAudioToMp3(audioFile, outAudio)
-                }
+                // 使用 Channel 监听 FFmpeg 进度
+                val channel = Channel<Float>(Channel.CONFLATED)
+                var success = false
 
-                // 修正：如果 remuxToFlac 的名字不贴切，其实就是 -c copy
-                // 为清晰起见，如果是 m4a 且使用 copy，逻辑是一样的。
+                coroutineScope {
+                    val ffmpegJob = launch(Dispatchers.IO) {
+                        success = when {
+                            params.audioCodecs == "flac" || audioSuffix == ".m4a" ->
+                                FFmpegHelper.remuxToFlac(
+                                    audioFile,
+                                    outAudio,
+                                    durationMs
+                                ) { p -> channel.trySend(p) }
+
+                            else ->
+                                FFmpegHelper.convertAudioToMp3(
+                                    audioFile,
+                                    outAudio,
+                                    durationMs
+                                ) { p -> channel.trySend(p) }
+                        }
+                        channel.close()
+                    }
+
+                    for (p in channel) {
+                        emit(Resource.Loading(1.0f, "正在处理音频格式...|MERGE:$p"))
+                    }
+                    ffmpegJob.join()
+                }
 
                 if (!success) throw Exception("音频处理失败")
 
