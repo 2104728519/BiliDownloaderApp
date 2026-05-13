@@ -381,7 +381,10 @@ fun HomeScreen(
                             .verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        BiliWebPlayer(bvid = currentState.detail.bvid)
+                        BiliWebPlayer(
+                            bvid = currentState.detail.bvid,
+                            page = currentState.selectedPage.page
+                        )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(currentState.detail.title, style = MaterialTheme.typography.titleMedium)
 
