@@ -46,7 +46,13 @@ sealed class HomeState {
     ) : HomeState()
 
     // 4. 处理中 (下载、合并、转码进度)
-    data class Processing(val info: String, val progress: Float) : HomeState()
+    data class Processing(
+        val info: String,
+        val progress: Float,
+        val detail: String? = null,    // 新增：用于显示 "10.5 MB / 50.2 MB"
+        val isMerging: Boolean = false, // 新增：是否处于合并阶段
+        val mergeProgress: Float = 0f  // 新增：合并进度 (0.0f ~ 1.0f)
+    ) : HomeState()
 
     // 5. 成功提示
     data class Success(val message: String) : HomeState()

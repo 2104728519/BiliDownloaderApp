@@ -96,9 +96,25 @@ class HomeViewModel(
             DownloadSession.downloadState.collect { resource ->
                 when (resource) {
                     is Resource.Loading -> {
+                        val rawData = resource.data ?: ""
+                        var info = rawData.substringBefore("|")
+                        var detail: String? = null
+                        var isMerging = false
+                        var mergeProgress = 0f
+
+                        if (rawData.contains("|DETAIL:")) {
+                            detail = rawData.substringAfter("|DETAIL:")
+                        } else if (rawData.contains("|MERGE:")) {
+                            isMerging = true
+                            mergeProgress = rawData.substringAfter("|MERGE:").toFloatOrNull() ?: 0f
+                        }
+
                         _state.value = HomeState.Processing(
-                            info = resource.data ?: "下载中...",
-                            progress = resource.progress
+                            info = if (info.isEmpty()) "处理中..." else info,
+                            progress = resource.progress,
+                            detail = detail,
+                            isMerging = isMerging,
+                            mergeProgress = mergeProgress
                         )
                     }
                     is Resource.Success -> {
@@ -162,18 +178,19 @@ class HomeViewModel(
     fun syncCookieToUserDB() {
         viewModelScope.launch(Dispatchers.IO) {
             val localCookie = CookieManager.getCookie(getApplication())
-            if (!localCookie.isNullOrEmpty()) addOrUpdateAccount(localCookie)
+            // 自动同步时使用静默模式，不弹出 Toast
+            if (!localCookie.isNullOrEmpty()) addOrUpdateAccount(localCookie, isSilent = true)
         }
     }
 
-    fun addOrUpdateAccount(cookieInput: String) {
+    fun addOrUpdateAccount(cookieInput: String, isSilent: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val rawCookie = if (cookieInput.contains("=")) cookieInput else "SESSDATA=$cookieInput"
                 val cookieMap = CookieManager.parseCookieStringToMap(rawCookie)
                 val inputSess = cookieMap["SESSDATA"]
                 if (inputSess.isNullOrEmpty()) {
-                    showToast("无效的 Cookie (缺少 SESSDATA)")
+                    if (!isSilent) showToast("无效的 Cookie (缺少 SESSDATA)")
                     return@launch
                 }
                 CookieManager.saveCookies(getApplication(), listOf(rawCookie))
@@ -193,14 +210,14 @@ class HomeViewModel(
                     authRepository.clearAllLoginStatus()
                     authRepository.insertUser(newUser)
                     _currentUser.value = newUser
-                    showToast("登录成功")
+                    if (!isSilent) showToast("登录成功")
                 } else {
-                    showToast("验证失败：Cookie 可能已过期")
+                    if (!isSilent) showToast("验证失败：Cookie 可能已过期")
                     restoreSession()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                showToast("登录异常: ${e.message}")
+                if (!isSilent) showToast("登录异常: ${e.message}")
                 restoreSession()
             }
         }

@@ -24,8 +24,16 @@ object FFmpegHelper {
      * @param videoFile 纯视频轨道文件.
      * @param audioFile 纯音频轨道文件.
      * @param outFile 输出文件路径.
+     * @param durationMs 视频总时长 (毫秒)，用于计算进度.
+     * @param onProgress 进度回调 (0.0 ~ 1.0).
      */
-    suspend fun mergeVideoAudio(videoFile: File, audioFile: File, outFile: File): Boolean {
+    suspend fun mergeVideoAudio(
+        videoFile: File,
+        audioFile: File,
+        outFile: File,
+        durationMs: Long = 0,
+        onProgress: ((Float) -> Unit)? = null
+    ): Boolean {
         // 使用 -c copy 极速合并，B站DASH流音视频格式通常已兼容 MP4 容器
         val command = "-y " +
                 "-i \"${videoFile.absolutePath}\" " +
@@ -36,7 +44,7 @@ object FFmpegHelper {
                 "-strict experimental " +
                 "\"${outFile.absolutePath}\""
 
-        return runCommand(command)
+        return runCommand(command, durationMs, onProgress)
     }
 
     /**
@@ -94,18 +102,23 @@ object FFmpegHelper {
      * 内部方法：执行 FFmpeg 命令并监听结果.
      * 使用 FFmpegKit.executeAsync 异步执行，并在协程中挂起等待。
      */
-    private suspend fun runCommand(command: String): Boolean {
+    private suspend fun runCommand(
+        command: String,
+        durationMs: Long = 0,
+        onProgress: ((Float) -> Unit)? = null
+    ): Boolean {
         return suspendCancellableCoroutine { continuation ->
 
             Log.d(TAG, "Executing FFmpeg command: $command")
 
             // 使用 FFmpegKit 异步执行
-            val session = FFmpegKit.executeAsync(command) { session ->
+            val session = FFmpegKit.executeAsync(command, { session ->
                 val returnCode = session.returnCode
 
                 // 处理完成回调
                 if (ReturnCode.isSuccess(returnCode)) {
                     Log.d(TAG, "FFmpeg Success")
+                    onProgress?.invoke(1f)
                     if (continuation.isActive) continuation.resume(true)
                 } else {
                     Log.e(TAG, "FFmpeg Failed with state: ${session.state}, rc: $returnCode")
@@ -115,7 +128,14 @@ object FFmpegHelper {
 
                     if (continuation.isActive) continuation.resume(false)
                 }
-            }
+            }, { /* Log callback */ }, { statistics ->
+                // 统计回调，用于计算进度
+                if (onProgress != null && durationMs > 0) {
+                    val timeInMs = statistics.time
+                    val progress = (timeInMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                    onProgress.invoke(progress)
+                }
+            })
 
             // 处理协程取消事件 (如用户点击了取消下载)
             continuation.invokeOnCancellation {

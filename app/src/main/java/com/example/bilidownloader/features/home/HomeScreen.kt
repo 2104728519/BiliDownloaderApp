@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -425,20 +426,52 @@ fun HomeScreen(
                 is HomeState.Processing -> {
                     Column(
                         modifier = Modifier
-                            .padding(top = 100.dp)
+                            .padding(top = 60.dp)
                             .padding(horizontal = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(currentState.info, style = MaterialTheme.typography.bodyLarge)
-                        LinearProgressIndicator(
-                            progress = { currentState.progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp)
-                        )
-                        Text("${(currentState.progress * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
+                        Text(currentState.info, style = MaterialTheme.typography.titleMedium)
+
+                        if (!currentState.isMerging) {
+                            LinearProgressIndicator(
+                                progress = { currentState.progress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp)
+                                    .height(8.dp),
+                                strokeCap = StrokeCap.Round
+                            )
+                            currentState.detail?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            Text(
+                                "${(currentState.progress * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Text("音视频封装合并中...", style = MaterialTheme.typography.bodyMedium)
+                            LinearProgressIndicator(
+                                progress = { currentState.mergeProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp)
+                                    .height(8.dp),
+                                color = MaterialTheme.colorScheme.tertiary,
+                                strokeCap = StrokeCap.Round
+                            )
+                            Text(
+                                "${(currentState.mergeProgress * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+
                         Spacer(modifier = Modifier.height(32.dp))
-                        val isDownloadingPhase = currentState.progress < 0.9f
+                        val isDownloadingPhase = !currentState.isMerging
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             if (currentState.info.contains("暂停")) Button(onClick = { viewModel.resumeDownload() }) {
                                 Text("继续")
