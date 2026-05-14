@@ -42,17 +42,21 @@ class DownloadRepository(private val context: Context) {
         val audioCodecs: String?,
         val audioOnly: Boolean,
         val pageTitle: String? = null, // 分P标题
-        val audioExtension: String? = null // 新增：音频扩展名 (m4a, mp3)
+        val audioExtension: String? = null, // 新增：音频扩展名 (m4a, mp3)
+        val isCrop: Boolean = false,
+        val cropStart: Float = 0f,
+        val cropEnd: Float = 0f
     )
 
     /**
-     * 执行完整下载流程 (获取链接 -> 下载流 -> 合并 -> 保存).
+     * 执行完整下载流程 (获取链接 -> 下载流 -> 合并 -> 裁剪 -> 保存).
      */
     fun downloadVideo(params: DownloadParams): Flow<Resource<String>> = flow {
         emit(Resource.Loading(progress = 0f, data = "准备下载..."))
         var videoFile: File? = null
         var audioFile: File? = null
         var outMp4: File? = null
+        var outAudio: File? = null
 
         try {
             val cacheDir = context.cacheDir
@@ -91,7 +95,7 @@ class DownloadRepository(private val context: Context) {
             val safeTitleSuffix = titleSuffix.replace("[\\\\/:*?\"<>|]".toRegex(), "_")
 
             if (params.audioOnly) {
-                val outAudio = File(cacheDir, "${params.bvid}_${params.cid}_out$audioSuffix")
+                outAudio = File(cacheDir, "${params.bvid}_${params.cid}_out$audioSuffix")
 
                 downloadFile(audioUrl, audioFile).collect { (current, total) ->
                     val progress = if (total > 0) current.toFloat() / total.toFloat() else 0f
@@ -99,45 +103,69 @@ class DownloadRepository(private val context: Context) {
                     emit(Resource.Loading(progress, "下载音频流...|DETAIL:$detail"))
                 }
 
-                // 使用 Channel 监听 FFmpeg 进度
+                // 处理音频格式
                 val channel = Channel<Float>(Channel.CONFLATED)
                 var success = false
-
                 coroutineScope {
                     val ffmpegJob = launch(Dispatchers.IO) {
                         success = when {
                             params.audioCodecs == "flac" || audioSuffix == ".m4a" ->
                                 FFmpegHelper.remuxToFlac(
                                     audioFile,
-                                    outAudio,
+                                    outAudio!!,
                                     durationMs
                                 ) { p -> channel.trySend(p) }
-
                             else ->
                                 FFmpegHelper.convertAudioToMp3(
                                     audioFile,
-                                    outAudio,
+                                    outAudio!!,
                                     durationMs
                                 ) { p -> channel.trySend(p) }
                         }
                         channel.close()
                     }
-
                     for (p in channel) {
                         emit(Resource.Loading(1.0f, "正在处理音频格式...|MERGE:$p"))
                     }
                     ffmpegJob.join()
                 }
-
                 if (!success) throw Exception("音频处理失败")
+
+                // 自定义裁剪
+                if (params.isCrop) {
+                    val croppedFile =
+                        File(cacheDir, "${params.bvid}_${params.cid}_cropped$audioSuffix")
+                    val cropDuration = params.cropEnd - params.cropStart
+                    val cropChannel = Channel<Float>(Channel.CONFLATED)
+                    var cropSuccess = false
+                    coroutineScope {
+                        val cropJob = launch(Dispatchers.IO) {
+                            cropSuccess = FFmpegHelper.fastCrop(
+                                outAudio!!,
+                                croppedFile,
+                                params.cropStart,
+                                cropDuration
+                            ) { p -> cropChannel.trySend(p) }
+                            cropChannel.close()
+                        }
+                        for (p in cropChannel) {
+                            emit(Resource.Loading(1.0f, "正在裁剪音频...|CROP:$p"))
+                        }
+                        cropJob.join()
+                    }
+                    if (cropSuccess) {
+                        outAudio?.delete()
+                        outAudio = croppedFile
+                    } else {
+                        croppedFile.delete()
+                    }
+                }
 
                 StorageHelper.saveAudioToMusic(
                     context,
-                    outAudio,
+                    outAudio!!,
                     "Bili_${params.bvid}${safeTitleSuffix}$audioSuffix"
                 )
-                outAudio.delete()
-                audioFile.delete()
                 emit(Resource.Success("音频已保存到音乐库"))
             } else {
                 val videoUrl = dash.video.find { it.id == params.videoId && it.codecs == params.videoCodecs }?.baseUrl
@@ -153,7 +181,6 @@ class DownloadRepository(private val context: Context) {
                 var videoCurrent = 0L
                 var audioCurrent = 0L
 
-                // 1. 下载视频
                 downloadFile(videoUrl, videoFile).collect { (current, total) ->
                     videoCurrent = current
                     videoTotal = total
@@ -164,7 +191,6 @@ class DownloadRepository(private val context: Context) {
                     emit(Resource.Loading(progress, "下载视频流...|DETAIL:$detail"))
                 }
 
-                // 2. 下载音频
                 downloadFile(audioUrl, audioFile).collect { (current, total) ->
                     audioCurrent = current
                     audioTotal = total
@@ -174,10 +200,9 @@ class DownloadRepository(private val context: Context) {
                     emit(Resource.Loading(progress, "下载音频流...|DETAIL:$detail"))
                 }
 
-                // 3. 合并阶段
+                // 合并
                 val channel = Channel<Float>(Channel.CONFLATED)
                 var success = false
-
                 coroutineScope {
                     val ffmpegJob = launch(Dispatchers.IO) {
                         success = FFmpegHelper.mergeVideoAudio(
@@ -185,19 +210,44 @@ class DownloadRepository(private val context: Context) {
                             audioFile!!,
                             outMp4!!,
                             durationMs
-                        ) { p ->
-                            channel.trySend(p)
-                        }
+                        ) { p -> channel.trySend(p) }
                         channel.close()
                     }
-
                     for (p in channel) {
                         emit(Resource.Loading(1.0f, "正在合并音视频...|MERGE:$p"))
                     }
                     ffmpegJob.join()
                 }
-
                 if (!success) throw Exception("FFmpeg 合并失败")
+
+                // 自定义裁剪
+                if (params.isCrop) {
+                    val croppedFile = File(cacheDir, "${params.bvid}_${params.cid}_cropped.mp4")
+                    val cropDuration = params.cropEnd - params.cropStart
+                    val cropChannel = Channel<Float>(Channel.CONFLATED)
+                    var cropSuccess = false
+                    coroutineScope {
+                        val cropJob = launch(Dispatchers.IO) {
+                            cropSuccess = FFmpegHelper.fastCrop(
+                                outMp4!!,
+                                croppedFile,
+                                params.cropStart,
+                                cropDuration
+                            ) { p -> cropChannel.trySend(p) }
+                            cropChannel.close()
+                        }
+                        for (p in cropChannel) {
+                            emit(Resource.Loading(1.0f, "正在裁剪视频...|CROP:$p"))
+                        }
+                        cropJob.join()
+                    }
+                    if (cropSuccess) {
+                        outMp4?.delete()
+                        outMp4 = croppedFile
+                    } else {
+                        croppedFile.delete()
+                    }
+                }
 
                 emit(Resource.Loading(1.0f, "正在保存...|MERGE:1.0"))
                 StorageHelper.saveVideoToGallery(
@@ -205,7 +255,6 @@ class DownloadRepository(private val context: Context) {
                     outMp4!!,
                     "Bili_${params.bvid}${safeTitleSuffix}.mp4"
                 )
-                outMp4?.delete()
                 emit(Resource.Success("视频已保存到相册"))
             }
         } catch (e: Exception) {
@@ -215,6 +264,8 @@ class DownloadRepository(private val context: Context) {
             try {
                 videoFile?.delete()
                 audioFile?.delete()
+                outMp4?.delete()
+                outAudio?.delete()
             } catch (e: Exception) { e.printStackTrace() }
         }
     }.flowOn(Dispatchers.IO)

@@ -55,13 +55,17 @@ class DownloadService : Service() {
                 val cid = intent.getLongExtra(EXTRA_CID, 0L)
                 val audioOnly = intent.getBooleanExtra(EXTRA_AUDIO_ONLY, false)
 
-                // 接收简化参数
                 val vid = intent.getSerializableExtra("vid") as? Int
                 val vcodec = intent.getStringExtra("vcodec")
                 val aid = intent.getIntExtra("aid", 0)
                 val acodec = intent.getStringExtra("acodec")
                 val pTitle = intent.getStringExtra("p_title")
                 val audioExt = intent.getStringExtra("audio_ext")
+
+                // 裁剪参数
+                val isCrop = intent.getBooleanExtra("is_crop", false)
+                val cropStart = intent.getFloatExtra("crop_start", 0f)
+                val cropEnd = intent.getFloatExtra("crop_end", 0f)
 
                 if (bvid.isNotEmpty()) {
                     val params = DownloadRepository.DownloadParams(
@@ -70,7 +74,10 @@ class DownloadService : Service() {
                         vcodec,
                         aid, acodec, audioOnly,
                         pTitle,
-                        audioExt
+                        audioExt,
+                        isCrop,
+                        cropStart,
+                        cropEnd
                     )
                     startDownload(params)
                 }
@@ -94,7 +101,6 @@ class DownloadService : Service() {
 
         downloadJob = serviceScope.launch {
             try {
-                // 【修改】直接调用 Repository
                 downloadRepo.downloadVideo(params).collect { resource ->
                     val currentTime = System.currentTimeMillis()
                     var shouldUpdateNotif = true
@@ -104,7 +110,12 @@ class DownloadService : Service() {
 
                     if (shouldUpdateNotif) {
                         val (message, progress, isIndeterminate) = when (resource) {
-                            is Resource.Loading -> Triple(resource.data ?: "下载中...", (resource.progress * 100).toInt(), false)
+                            is Resource.Loading -> {
+                                val msg = resource.data ?: "下载中..."
+                                val info =
+                                    if (msg.contains("裁剪")) "正在裁剪..." else if (msg.contains("合并")) "正在合并..." else "正在下载..."
+                                Triple(info, (resource.progress * 100).toInt(), false)
+                            }
                             is Resource.Success -> Triple("下载完成", 100, false)
                             is Resource.Error -> Triple("出错: ${resource.message}", 0, false)
                         }

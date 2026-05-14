@@ -50,10 +50,9 @@ fun HomeScreen(
     val clipboardManager = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Android 13+ 通知权限请求
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = { /* 权限结果处理 */ }
+        onResult = { }
     )
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -63,7 +62,6 @@ fun HomeScreen(
         }
     }
 
-    // --- 状态收集 ---
     val state by viewModel.state.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val userList by viewModel.userList.collectAsState()
@@ -74,12 +72,10 @@ fun HomeScreen(
     val isCloudHistoryLoading by viewModel.isCloudHistoryLoading.collectAsState()
     val cloudHistoryError by viewModel.cloudHistoryError.collectAsState()
 
-    // --- UI 内部状态 ---
     var inputText by remember { mutableStateOf("") }
     var isSelectionMode by remember { mutableStateOf(false) } 
     val selectedItems = remember { mutableStateListOf<HistoryEntity>() }
 
-    // 弹窗控制
     var showAccountDialog by remember { mutableStateOf(false) }
     var showManualCookieInput by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
@@ -102,10 +98,6 @@ fun HomeScreen(
         if (isSelectionMode) exitSelectionMode()
         else if (state !is HomeState.Idle) viewModel.reset()
     }
-
-    // =========================================================
-    // 弹窗 (Dialogs)
-    // =========================================================
 
     if (showAccountDialog) {
         Dialog(onDismissRequest = { showAccountDialog = false }) {
@@ -222,9 +214,7 @@ fun HomeScreen(
         )
     }
 
-    if (showManualDialog) {
-        ManualDialog(onDismiss = { showManualDialog = false })
-    }
+    if (showManualDialog) ManualDialog(onDismiss = { showManualDialog = false })
 
     Scaffold(
         topBar = {
@@ -298,7 +288,6 @@ fun HomeScreen(
                         enabled = inputText.isNotBlank()
                     ) { Text("开始解析") }
                     Spacer(modifier = Modifier.height(24.dp))
-
                     TabRow(
                         selectedTabIndex = historyTab.ordinal,
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -307,15 +296,12 @@ fun HomeScreen(
                         Tab(
                             selected = historyTab == HistoryTab.Local,
                             onClick = { viewModel.selectHistoryTab(HistoryTab.Local) },
-                            text = { Text("本地记录") }
-                        )
+                            text = { Text("本地记录") })
                         Tab(
                             selected = historyTab == HistoryTab.Cloud,
                             onClick = { viewModel.selectHistoryTab(HistoryTab.Cloud) },
-                            text = { Text("账号记录") }
-                        )
+                            text = { Text("账号记录") })
                     }
-
                     when (historyTab) {
                         HistoryTab.Local -> {
                             if (historyList.isNotEmpty()) {
@@ -340,8 +326,9 @@ fun HomeScreen(
                                             },
                                             onLongClick = {
                                                 if (!isSelectionMode) {
-                                                    isSelectionMode = true
-                                                    selectedItems.add(history)
+                                                    isSelectionMode = true; selectedItems.add(
+                                                        history
+                                                    )
                                                 }
                                             }
                                         )
@@ -366,14 +353,11 @@ fun HomeScreen(
                                 cloudHistoryList = cloudHistoryList,
                                 isCloudHistoryLoading = isCloudHistoryLoading,
                                 cloudHistoryError = cloudHistoryError,
-                                onLoginClick = { showManualCookieInput = true }
-                            )
+                                onLoginClick = { showManualCookieInput = true })
                         }
                     }
                 }
-
                 is HomeState.Analyzing -> CircularProgressIndicator(modifier = Modifier.padding(top = 100.dp))
-
                 is HomeState.ChoiceSelect -> {
                     Column(
                         modifier = Modifier
@@ -387,22 +371,18 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(currentState.detail.title, style = MaterialTheme.typography.titleMedium)
-
                         if (currentState.detail.pages.size > 1) {
                             Spacer(modifier = Modifier.height(8.dp))
                             PageSelector(
                                 pages = currentState.detail.pages,
                                 selectedPage = currentState.selectedPage,
-                                onPageSelected = { viewModel.updateSelectedPage(it) }
-                            )
+                                onPageSelected = { viewModel.updateSelectedPage(it) })
                         }
-
                         Spacer(modifier = Modifier.height(16.dp))
                         QualitySelector("视频画质", currentState.videoFormats, currentState.selectedVideo) { viewModel.updateSelectedVideo(it) }
                         Spacer(modifier = Modifier.height(8.dp))
                         QualitySelector("音频音质", currentState.audioFormats, currentState.selectedAudio) { viewModel.updateSelectedAudio(it) }
 
-                        // --- 音频格式选择 UI ---
                         val isSourceFlac =
                             currentState.selectedAudio?.codecs?.contains("flac") == true
                         Spacer(modifier = Modifier.height(12.dp))
@@ -416,9 +396,7 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.width(16.dp))
-
                             if (isSourceFlac) {
-                                // 如果源是 FLAC，显示无损标识
                                 Surface(
                                     color = MaterialTheme.colorScheme.tertiaryContainer,
                                     shape = MaterialTheme.shapes.small
@@ -427,8 +405,7 @@ fun HomeScreen(
                                         modifier = Modifier.padding(
                                             horizontal = 12.dp,
                                             vertical = 6.dp
-                                        ),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        ), verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
                                             Icons.Default.MusicNote,
@@ -445,7 +422,6 @@ fun HomeScreen(
                                     }
                                 }
                             } else {
-                                // 普通 AAC 流，提供分段选择器
                                 SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
                                     SegmentedButton(
                                         selected = currentState.selectedAudioExtension == "m4a",
@@ -454,8 +430,7 @@ fun HomeScreen(
                                             index = 0,
                                             count = 2
                                         ),
-                                        icon = {}
-                                    ) {
+                                        icon = {}) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("M4A", style = MaterialTheme.typography.bodySmall)
                                             Text(
@@ -472,8 +447,7 @@ fun HomeScreen(
                                             index = 1,
                                             count = 2
                                         ),
-                                        icon = {}
-                                    ) {
+                                        icon = {}) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("MP3", style = MaterialTheme.typography.bodySmall)
                                             Text(
@@ -482,6 +456,75 @@ fun HomeScreen(
                                                 color = MaterialTheme.colorScheme.outline
                                             )
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        // --- [新增] 自定义裁剪 UI ---
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.5f
+                                )
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.ContentCut,
+                                        null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("自定义裁剪", style = MaterialTheme.typography.titleSmall)
+                                    Spacer(Modifier.weight(1f))
+                                    Switch(
+                                        checked = currentState.isCropEnabled,
+                                        onCheckedChange = { viewModel.toggleCrop(it) },
+                                        thumbContent = {
+                                            if (currentState.isCropEnabled) Icon(
+                                                Icons.Default.Check,
+                                                null,
+                                                Modifier.size(12.dp)
+                                            )
+                                        }
+                                    )
+                                }
+                                if (currentState.isCropEnabled) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    RangeSlider(
+                                        value = currentState.cropStart..currentState.cropEnd,
+                                        onValueChange = { range ->
+                                            viewModel.updateCropRange(
+                                                range.start,
+                                                range.endInclusive
+                                            )
+                                        },
+                                        valueRange = 0f..currentState.videoDurationSeconds.toFloat(),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            formatTime(currentState.cropStart.toLong()),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            "选中时长: ${formatTime((currentState.cropEnd - currentState.cropStart).toLong())}",
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                        Text(
+                                            formatTime(currentState.cropEnd.toLong()),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
                                     }
                                 }
                             }
@@ -502,7 +545,6 @@ fun HomeScreen(
                                 if (isSourceFlac) "FLAC" else currentState.selectedAudioExtension.uppercase()
                             Text("仅下载音频 (.$ext)")
                         }
-
                         Spacer(modifier = Modifier.height(16.dp))
                         FilledTonalButton(
                             onClick = { showSubtitleDialog = true },
@@ -519,7 +561,6 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(48.dp))
                     }
                 }
-
                 is HomeState.Processing -> {
                     Column(
                         modifier = Modifier
@@ -528,7 +569,6 @@ fun HomeScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(currentState.info, style = MaterialTheme.typography.titleMedium)
-
                         if (!currentState.isMerging) {
                             LinearProgressIndicator(
                                 progress = { currentState.progress },
@@ -552,7 +592,10 @@ fun HomeScreen(
                         } else {
                             Spacer(modifier = Modifier.height(20.dp))
                             val mergeText =
-                                if (currentState.info.contains("音频")) "正在处理音频格式..." else "音视频封装合并中..."
+                                if (currentState.info.contains("裁剪")) "正在裁剪片段..." else if (currentState.info.contains(
+                                        "音频"
+                                    )
+                                ) "正在处理音频格式..." else "音视频封装合并中..."
                             Text(mergeText, style = MaterialTheme.typography.bodyMedium)
                             LinearProgressIndicator(
                                 progress = { currentState.mergeProgress },
@@ -568,12 +611,13 @@ fun HomeScreen(
                                 style = MaterialTheme.typography.labelLarge
                             )
                         }
-
                         Spacer(modifier = Modifier.height(32.dp))
                         val isDownloadingPhase = !currentState.isMerging
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             if (currentState.info.contains("暂停")) Button(onClick = { viewModel.resumeDownload() }) {
-                                Text("继续")
+                                Text(
+                                    "继续"
+                                )
                             }
                             else OutlinedButton(
                                 onClick = { viewModel.pauseDownload() },
@@ -587,14 +631,12 @@ fun HomeScreen(
                         }
                     }
                 }
-
                 is HomeState.Success -> {
                     Column(modifier = Modifier.padding(top = 100.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("🎉 ${currentState.message}", color = MaterialTheme.colorScheme.primary)
                         Button(onClick = { viewModel.reset() }, modifier = Modifier.padding(top = 24.dp)) { Text("完成") }
                     }
                 }
-
                 is HomeState.Error -> {
                     Column(modifier = Modifier.padding(top = 100.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("❌ ${currentState.errorMsg}", color = MaterialTheme.colorScheme.error)
@@ -604,4 +646,11 @@ fun HomeScreen(
             }
         }
     }
+}
+
+private fun formatTime(seconds: Long): String {
+    val h = seconds / 3600
+    val m = (seconds % 3600) / 60
+    val s = seconds % 60
+    return if (h > 0) String.format("%02d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
 }

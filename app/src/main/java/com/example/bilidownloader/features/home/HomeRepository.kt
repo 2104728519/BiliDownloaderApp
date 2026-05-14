@@ -19,28 +19,16 @@ import java.util.regex.Pattern
 
 /**
  * 首页核心仓库.
- *
- * 职责：
- * 1. 视频解析：处理链接、获取详情、计算 WBI、筛选 DASH 流。
- * 2. 历史记录写入。
- * 3. 获取账号云端历史记录。
  */
 class HomeRepository(
     private val context: Context,
     private val historyDao: HistoryDao
 ) {
     private val apiService = NetworkModule.biliService
-    // 专门处理重定向的轻量级 Client (用于 b23.tv 短链)
     private val redirectClient = OkHttpClient.Builder().followRedirects(true).build()
 
-    // region 1. Video Analysis (视频解析业务)
-
-    /**
-     * 解析视频链接，获取可下载/播放的流媒体信息.
-     */
     suspend fun analyzeVideo(input: String): Resource<VideoAnalysisResult> = withContext(Dispatchers.IO) {
         try {
-            // --- 1. 链接提取与短链还原 ---
             var bvid = LinkUtils.extractBvid(input)
             if (bvid == null) {
                 val url = findUrl(input)
@@ -53,15 +41,12 @@ class HomeRepository(
                 return@withContext Resource.Error("没找到 BV 号，请检查链接")
             }
 
-            // --- 2. 获取基础元数据 (View 接口) ---
             val viewResp = apiService.getVideoView(bvid).execute()
             val detail = viewResp.body()?.data ?: return@withContext Resource.Error("无法获取视频信息")
 
-            // 默认取第一P
             val firstPage =
                 detail.pages.firstOrNull() ?: return@withContext Resource.Error("该视频没有分P信息")
 
-            // --- 3. 写入本地历史记录 ---
             historyDao.insertHistory(
                 HistoryEntity(
                     bvid = detail.bvid,
@@ -72,7 +57,6 @@ class HomeRepository(
                 )
             )
 
-            // --- 4. 获取流地址 ---
             val formatsResult = fetchVideoFormats(detail.bvid, firstPage.cid)
             if (formatsResult is Resource.Error) {
                 return@withContext Resource.Error(formatsResult.message ?: "获取流地址失败")
@@ -84,7 +68,8 @@ class HomeRepository(
                 VideoAnalysisResult(
                     detail = detail,
                     videoFormats = formats.first,
-                    audioFormats = formats.second
+                    audioFormats = formats.second,
+                    durationSeconds = formats.third
                 )
             )
 
@@ -94,27 +79,23 @@ class HomeRepository(
         }
     }
 
-    /**
-     * 根据 bvid 和 cid 获取可用的视频和音频格式列表.
-     */
     suspend fun fetchVideoFormats(
         bvid: String,
         cid: Long
-    ): Resource<Pair<List<FormatOption>, List<FormatOption>>> = withContext(Dispatchers.IO) {
+    ): Resource<Triple<List<FormatOption>, List<FormatOption>, Long>> =
+        withContext(Dispatchers.IO) {
         try {
-            // --- 1. WBI 签名 ---
             val navResp = apiService.getNavInfo().execute()
             val navData = navResp.body()?.data ?: return@withContext Resource.Error("无法获取密钥")
             val imgKey = navData.wbi_img.img_url.substringAfterLast("/").substringBefore(".")
             val subKey = navData.wbi_img.sub_url.substringAfterLast("/").substringBefore(".")
             val mixinKey = BiliSigner.getMixinKey(imgKey, subKey)
 
-            // --- 2. 构建参数并请求流地址 ---
             val params = TreeMap<String, Any>().apply {
                 put("bvid", bvid)
                 put("cid", cid)
-                put("qn", "127") // 请求 8K/4K 最高画质
-                put("fnval", "4048") // 强制开启 DASH 格式
+                put("qn", "127")
+                put("fnval", "4048")
                 put("fourk", "1")
             }
             val signedQuery = BiliSigner.signParams(params, mixinKey)
@@ -125,19 +106,18 @@ class HomeRepository(
             }
 
             val playResp = apiService.getPlayUrl(queryMap).execute()
-            val playData = playResp.body()?.data ?: return@withContext Resource.Error("无法获取播放列表: ${playResp.errorBody()?.string()}")
+            val playData =
+                playResp.body()?.data ?: return@withContext Resource.Error("无法获取播放列表")
 
-            // --- 3. 格式筛选与封装 ---
             val videoOpts = mutableListOf<FormatOption>()
             val audioOpts = mutableListOf<FormatOption>()
+            val durationInSeconds = if (playData.timelength != null && playData.timelength > 0) {
+                playData.timelength / 1000L
+            } else {
+                180L
+            }
 
             if (playData.dash != null) {
-                val durationInSeconds = if (playData.timelength != null && playData.timelength > 0) {
-                    playData.timelength / 1000L
-                } else {
-                    180L // 默认 3分钟
-                }
-
                 playData.dash.video.forEach { media ->
                     val qIndex = playData.accept_quality?.indexOf(media.id) ?: -1
                     val desc = if (qIndex >= 0 && qIndex < (playData.accept_description?.size ?: 0)) {
@@ -213,14 +193,12 @@ class HomeRepository(
             val finalVideoOpts = videoOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
             val finalAudioOpts = audioOpts.distinctBy { it.label }.sortedByDescending { it.bandwidth }
 
-            Resource.Success(Pair(finalVideoOpts, finalAudioOpts))
+            Resource.Success(Triple(finalVideoOpts, finalAudioOpts, durationInSeconds))
         } catch (e: Exception) {
             e.printStackTrace()
             Resource.Error("获取流地址失败: ${e.message}")
         }
     }
-
-    // endregion
 
     suspend fun reportProgress(aid: Long, cid: Long) {
         try {
@@ -231,50 +209,29 @@ class HomeRepository(
         }
     }
 
-    // region 3. Cloud History (云端历史记录)
-
-    /**
-     * 获取 B 站账号云端的视频播放历史.
-     * @param cursor 分页游标，为 null 时表示从第一页开始获取.
-     * @return 返回一个包含历史列表和下一个分页游标的 Pair.
-     */
     suspend fun fetchCloudHistory(cursor: HistoryCursor?): Resource<Pair<List<CloudHistoryItem>, HistoryCursor?>> =
         withContext(Dispatchers.IO) {
             try {
-                // 1. API 调用
                 val response = apiService.getHistory(
                     viewAt = cursor?.view_at ?: 0,
                     max = cursor?.max ?: 0
                 )
-
-                // 2. 结果处理
                 if (response.code == 0) {
                     val data = response.data
                     val list = data?.list ?: emptyList()
                     val nextCursor = data?.cursor
-
-                    // B站逻辑：如果返回的 list 为空，或 cursor.max 为 0，则表示没有更多数据
                     val hasMore = !list.isNullOrEmpty() && (nextCursor?.max ?: 0) > 0
-
                     Resource.Success(Pair(list, if (hasMore) nextCursor else null))
                 } else {
-                    // 特别处理未登录的情况
-                    val errorMsg = if (response.code == -101) {
-                        "请先登录账号"
-                    } else {
-                        response.message ?: "获取失败 (code: ${response.code})"
-                    }
+                    val errorMsg = if (response.code == -101) "请先登录账号" else response.message
+                        ?: "获取失败"
                     Resource.Error(errorMsg)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 Resource.Error("网络异常: ${e.message}")
-        }
+            }
     }
-
-    // endregion
-
-    // region Internal Helpers
 
     private fun findUrl(text: String): String? {
         val matcher = Pattern.compile("http[s]?://\\S+").matcher(text)
@@ -298,15 +255,11 @@ class HomeRepository(
         val mb = bytes / 1024.0 / 1024.0
         return String.format("%.1fMB", mb)
     }
-
-    // endregion
 }
 
-/**
- * 视频解析结果数据类.
- */
 data class VideoAnalysisResult(
     val detail: VideoDetail,
     val videoFormats: List<FormatOption>,
-    val audioFormats: List<FormatOption>
+    val audioFormats: List<FormatOption>,
+    val durationSeconds: Long
 )

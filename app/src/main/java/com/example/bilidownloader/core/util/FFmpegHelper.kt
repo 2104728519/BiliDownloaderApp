@@ -85,6 +85,33 @@ object FFmpegHelper {
     }
 
     /**
+     * 通用快速裁剪 (不重编码).
+     *
+     * @param inputFile 输入文件.
+     * @param outFile 输出文件.
+     * @param startSeconds 开始时间 (秒).
+     * @param durationSeconds 持续时长 (秒).
+     * @param onProgress 进度回调.
+     */
+    suspend fun fastCrop(
+        inputFile: File,
+        outFile: File,
+        startSeconds: Float,
+        durationSeconds: Float,
+        onProgress: ((Float) -> Unit)? = null
+    ): Boolean {
+        val ss = String.format("%.3f", startSeconds)
+        val t = String.format("%.3f", durationSeconds)
+
+        // 快速裁剪：-ss 放在 -i 之前。使用 -c copy 保持原编码。
+        val command =
+            "-y -ss $ss -i \"${inputFile.absolutePath}\" -t $t -c copy \"${outFile.absolutePath}\""
+
+        Log.d(TAG, "FFmpeg快速裁剪命令: $command")
+        return runCommand(command, (durationSeconds * 1000).toLong(), onProgress)
+    }
+
+    /**
      * 裁剪音频.
      *
      * @param startTime 开始时间 (秒).

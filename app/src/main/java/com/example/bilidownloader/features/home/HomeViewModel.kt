@@ -39,10 +39,6 @@ class HomeViewModel(
     private val subtitleRepository: SubtitleRepository
 ) : AndroidViewModel(application) {
 
-    // ========================================================================
-    // 状态流 (StateFlow)
-    // ========================================================================
-
     private val _state = MutableStateFlow<HomeState>(HomeState.Idle)
     val state = _state.asStateFlow()
 
@@ -61,10 +57,6 @@ class HomeViewModel(
     private val _currentUser = MutableStateFlow<UserEntity?>(null)
     val currentUser = _currentUser.asStateFlow()
 
-    // ========================================================================
-    // 云端历史记录状态
-    // ========================================================================
-
     private val _historyTab = MutableStateFlow(HistoryTab.Local)
     val historyTab = _historyTab.asStateFlow()
 
@@ -80,9 +72,6 @@ class HomeViewModel(
     private var nextCloudCursor: HistoryCursor? = null
     private var hasMoreCloudHistory = true
 
-    // ========================================================================
-    // 内部临时变量
-    // ========================================================================
     private var currentBvid: String = ""
     private var currentCid: Long = 0L
     private var currentDetail: VideoDetail? = null
@@ -92,7 +81,6 @@ class HomeViewModel(
     private var savedAudioExtension: String = "m4a"
 
     init {
-        // 1. 监听全局下载状态 (Service -> Session -> ViewModel)
         viewModelScope.launch {
             DownloadSession.downloadState.collect { resource ->
                 when (resource) {
@@ -108,6 +96,10 @@ class HomeViewModel(
                         } else if (rawData.contains("|MERGE:")) {
                             isMerging = true
                             mergeProgress = rawData.substringAfter("|MERGE:").toFloatOrNull() ?: 0f
+                        } else if (rawData.contains("|CROP:")) {
+                            isMerging = true
+                            info = "正在进行自定义裁剪..."
+                            mergeProgress = rawData.substringAfter("|CROP:").toFloatOrNull() ?: 0f
                         }
 
                         _state.value = HomeState.Processing(
@@ -118,32 +110,20 @@ class HomeViewModel(
                             mergeProgress = mergeProgress
                         )
                     }
-                    is Resource.Success -> {
-                        _state.value = HomeState.Success(resource.data!!)
-                    }
-                    is Resource.Error -> {
-                        handleDownloadError(resource.message)
-                    }
+
+                    is Resource.Success -> _state.value = HomeState.Success(resource.data!!)
+                    is Resource.Error -> handleDownloadError(resource.message)
                 }
             }
         }
-
-        // 2. 初始化时恢复登录会话
         restoreSession()
-
-        // 3. [核心修复] 监听当前用户变化，重置并按需刷新云端历史
         viewModelScope.launch {
             currentUser.collect { newUser ->
-                // 当用户发生变化时 (登录、切换、登出)，必须重置云端历史记录的状态
                 _cloudHistoryList.value = emptyList()
                 nextCloudCursor = null
                 hasMoreCloudHistory = true
                 _cloudHistoryError.value = null
-
-                // 如果用户切换到了一个有效账号，并且当前正停留在“账号记录”Tab，则刷新
-                if (_historyTab.value == HistoryTab.Cloud && newUser != null) {
-                    refreshCloudHistory()
-                }
+                if (_historyTab.value == HistoryTab.Cloud && newUser != null) refreshCloudHistory()
             }
         }
     }
@@ -158,10 +138,6 @@ class HomeViewModel(
             else -> _state.value = HomeState.Error(msg ?: "失败")
         }
     }
-
-    // ========================================================================
-    // 1. 账号管理 (Session & Cookie)
-    // ========================================================================
 
     private fun restoreSession() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -179,7 +155,6 @@ class HomeViewModel(
     fun syncCookieToUserDB() {
         viewModelScope.launch(Dispatchers.IO) {
             val localCookie = CookieManager.getCookie(getApplication())
-            // 自动同步时使用静默模式，不弹出 Toast
             if (!localCookie.isNullOrEmpty()) addOrUpdateAccount(localCookie, isSilent = true)
         }
     }
@@ -248,16 +223,10 @@ class HomeViewModel(
         }
     }
 
-    // ========================================================================
-    // 2. 云端历史记录动作
-    // ========================================================================
-
     fun selectHistoryTab(tab: HistoryTab) {
         if (_historyTab.value == tab) return
         _historyTab.value = tab
-        if (tab == HistoryTab.Cloud && _cloudHistoryList.value.isEmpty() && currentUser.value != null) {
-            refreshCloudHistory()
-        }
+        if (tab == HistoryTab.Cloud && _cloudHistoryList.value.isEmpty() && currentUser.value != null) refreshCloudHistory()
     }
 
     fun refreshCloudHistory() {
@@ -274,12 +243,10 @@ class HomeViewModel(
                     nextCloudCursor = cursor
                     if (cursor == null) hasMoreCloudHistory = false
                 }
-
                 is Resource.Error -> {
                     _cloudHistoryError.value = result.message
                     _cloudHistoryList.value = emptyList()
                 }
-
                 else -> {}
             }
             _isCloudHistoryLoading.value = false
@@ -297,17 +264,12 @@ class HomeViewModel(
                     nextCloudCursor = cursor
                     if (cursor == null) hasMoreCloudHistory = false
                 }
-
                 is Resource.Error -> showToast("加载更多失败: ${result.message}")
                 else -> {}
             }
             _isCloudHistoryLoading.value = false
         }
     }
-
-    // ========================================================================
-    // 3. 视频解析与下载
-    // ========================================================================
 
     fun analyzeInput(input: String) {
         viewModelScope.launch {
@@ -321,7 +283,7 @@ class HomeViewModel(
                     currentCid = firstPage.cid
                     savedVideoOption = result.videoFormats.firstOrNull()
                     savedAudioOption = result.audioFormats.firstOrNull()
-                    savedAudioExtension = "m4a" // 重置默认扩展名
+                    savedAudioExtension = "m4a"
                     _state.value = HomeState.ChoiceSelect(
                         detail = result.detail,
                         videoFormats = result.videoFormats,
@@ -329,9 +291,13 @@ class HomeViewModel(
                         selectedVideo = savedVideoOption,
                         selectedAudio = savedAudioOption,
                         selectedPage = firstPage,
-                        selectedAudioExtension = savedAudioExtension
+                        selectedAudioExtension = savedAudioExtension,
+                        videoDurationSeconds = result.durationSeconds,
+                        cropStart = 0f,
+                        cropEnd = result.durationSeconds.toFloat()
                     )
                 }
+
                 is Resource.Error -> _state.value =
                     HomeState.Error(resource.message ?: "未知解析错误")
                 else -> {}
@@ -344,8 +310,6 @@ class HomeViewModel(
         if (currentState !is HomeState.ChoiceSelect || page.cid == currentCid) return
 
         viewModelScope.launch {
-            // 设置正在分析状态（可选，也可以在当前 UI 上加 Loading）
-            // 这里简单处理，直接去请求新分P的流地址
             currentCid = page.cid
             when (val result = homeRepository.fetchVideoFormats(currentBvid, page.cid)) {
                 is Resource.Success -> {
@@ -358,26 +322,36 @@ class HomeViewModel(
                         audioFormats = formats.second,
                         selectedVideo = savedVideoOption,
                         selectedAudio = savedAudioOption,
-                        // 切换分P后重置字幕状态
+                        videoDurationSeconds = formats.third,
+                        cropStart = 0f,
+                        cropEnd = formats.third.toFloat(),
                         subtitleData = null,
                         subtitleContent = "",
                         isSubtitleLoading = false
                     )
                 }
 
-                is Resource.Error -> {
-                    showToast("切换分P失败: ${result.message}")
-                }
-
+                is Resource.Error -> showToast("切换分P失败: ${result.message}")
                 else -> {}
             }
         }
     }
 
+    fun toggleCrop(enabled: Boolean) {
+        val cur = _state.value
+        if (cur is HomeState.ChoiceSelect) _state.value = cur.copy(isCropEnabled = enabled)
+    }
+
+    fun updateCropRange(start: Float, end: Float) {
+        val cur = _state.value
+        if (cur is HomeState.ChoiceSelect) _state.value = cur.copy(cropStart = start, cropEnd = end)
+    }
+
     fun startDownload(audioOnly: Boolean) {
+        val currentState = _state.value as? HomeState.ChoiceSelect
         val vOpt = savedVideoOption
         val aOpt = savedAudioOption
-        if ((!audioOnly && vOpt == null) || aOpt == null) {
+        if (currentState == null || (!audioOnly && vOpt == null) || aOpt == null) {
             _state.value = HomeState.Error("下载参数丢失，请重新解析")
             return
         }
@@ -392,23 +366,23 @@ class HomeViewModel(
             putExtra("vcodec", vOpt?.codecs)
             putExtra("aid", aOpt.id)
             putExtra("acodec", aOpt.codecs)
-            // 传入音频扩展名选项
-            if (audioOnly) {
-                putExtra("audio_ext", savedAudioExtension)
-            }
-            // 传入分P标题以便重命名
-            val currentState = _state.value as? HomeState.ChoiceSelect
-            if (currentState != null && currentState.detail.pages.size > 1) {
-                putExtra("p_title", currentState.selectedPage.part)
+            if (audioOnly) putExtra("audio_ext", savedAudioExtension)
+            if (currentState.detail.pages.size > 1) putExtra(
+                "p_title",
+                currentState.selectedPage.part
+            )
+
+            // 裁剪参数
+            if (currentState.isCropEnabled) {
+                putExtra("is_crop", true)
+                putExtra("crop_start", currentState.cropStart)
+                putExtra("crop_end", currentState.cropEnd)
             }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
-        val currentP = (_state.value as? HomeState.Processing)?.progress ?: 0f
-        _state.value = HomeState.Processing("下载准备中...", currentP)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+        else context.startService(intent)
+
+        _state.value = HomeState.Processing("下载准备中...", 0f)
     }
 
     fun pauseDownload() {
@@ -421,10 +395,6 @@ class HomeViewModel(
         getApplication<Application>().startService(intent)
         _state.value = HomeState.Idle
     }
-
-    // ========================================================================
-    // 4. 字幕与转写
-    // ========================================================================
 
     fun fetchSubtitle() {
         val currentState = _state.value
@@ -523,10 +493,6 @@ class HomeViewModel(
             currentState.copy(subtitleData = null, subtitleContent = "", isSubtitleLoading = false)
     }
 
-    // ========================================================================
-    // 5. 其他 UI 辅助方法
-    // ========================================================================
-
     fun reset() { _state.value = HomeState.Idle }
     fun deleteHistories(list: List<HistoryEntity>) {
         viewModelScope.launch(Dispatchers.IO) { historyRepository.deleteList(list) }
@@ -541,7 +507,6 @@ class HomeViewModel(
         val cur = _state.value
         if (cur is HomeState.ChoiceSelect) _state.value = cur.copy(selectedAudio = option)
     }
-
     fun updateAudioExtension(ext: String) {
         savedAudioExtension = ext
         val cur = _state.value

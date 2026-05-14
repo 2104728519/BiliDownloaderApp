@@ -22,7 +22,7 @@ data class FormatOption(
  * 替代原有的 MainState.
  */
 sealed class HomeState {
-    // 1. 空闲状态 (显示输入框和历史记录)
+    // 1. 空闲状态 (显示输入框 and 历史记录)
     object Idle : HomeState()
 
     // 2. 解析中 (显示转圈)
@@ -45,7 +45,13 @@ sealed class HomeState {
         val subtitleData: ConclusionData? = null, // 字幕原始数据
         val selectedSubtitleIndex: Int = 0, // 当前选中的字幕索引
         val isTimestampEnabled: Boolean = false, // 是否开启时间戳显示
-        val subtitleContent: String = "" // 当前预览/编辑框中的文本内容
+        val subtitleContent: String = "", // 当前预览/编辑框中的文本内容
+
+        // --- [新增] 自定义裁剪相关状态 ---
+        val videoDurationSeconds: Long = 0, // 当前分P总时长
+        val isCropEnabled: Boolean = false, // 是否开启裁剪
+        val cropStart: Float = 0f,           // 裁剪起点 (秒)
+        val cropEnd: Float = 0f              // 裁剪终点 (秒)
     ) : HomeState()
 
     // 4. 处理中 (下载、合并、转码进度)
