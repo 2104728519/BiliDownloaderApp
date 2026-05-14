@@ -73,7 +73,7 @@ fun HomeScreen(
     val cloudHistoryError by viewModel.cloudHistoryError.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
-    var isSelectionMode by remember { mutableStateOf(false) } 
+    var isSelectionMode by remember { mutableStateOf(false) }
     val selectedItems = remember { mutableStateListOf<HistoryEntity>() }
 
     var showAccountDialog by remember { mutableStateOf(false) }
@@ -322,7 +322,9 @@ fun HomeScreen(
                                                         history
                                                     )
                                                     else selectedItems.add(history)
-                                                } else viewModel.analyzeInput(history.bvid)
+                                                } else {
+                                                    inputText = history.bvid
+                                                }
                                             },
                                             onLongClick = {
                                                 if (!isSelectionMode) {
@@ -353,7 +355,9 @@ fun HomeScreen(
                                 cloudHistoryList = cloudHistoryList,
                                 isCloudHistoryLoading = isCloudHistoryLoading,
                                 cloudHistoryError = cloudHistoryError,
-                                onLoginClick = { showManualCookieInput = true })
+                                onLoginClick = { showManualCookieInput = true },
+                                onItemClick = { bvid -> inputText = bvid }
+                            )
                         }
                     }
                 }

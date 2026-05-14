@@ -35,7 +35,8 @@ fun CloudHistoryContent(
     cloudHistoryList: List<CloudHistoryItem>,
     isCloudHistoryLoading: Boolean,
     cloudHistoryError: String?,
-    onLoginClick: () -> Unit
+    onLoginClick: () -> Unit,
+    onItemClick: (String) -> Unit
 ) {
     val cloudListState = rememberLazyListState()
 
@@ -104,7 +105,7 @@ fun CloudHistoryContent(
                     items(cloudHistoryList, key = { it.kid }) { item ->
                         CloudHistoryItem(
                             item = item,
-                            onClick = { viewModel.analyzeInput(item.bvid) },
+                            onClick = { onItemClick(item.bvid) },
                             onLongClick = { }
                         )
                     }
