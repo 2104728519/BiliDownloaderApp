@@ -159,33 +159,13 @@ class FfmpegRepository(private val context: Context) {
                     1. 架构为 "单文件输入 -> 内存处理 -> 单文件输出"。
                     2. ❌ 严禁引入外部文件：绝对不要生成 -i watermark.png, -vf subtitles=file.srt。
                     3. ❌ 严禁多文件输出：绝对不要生成 -f segment, -f hls, -map 0:v -map 0:a (多路)。
-                    4. ✅ 允许复杂滤镜：可以使用 -filter_complex (或 -lavfi) 进行流的克隆(split)、混合(blend)、堆叠(stack)。
-                    
-                    【💡 复杂滤镜语法指南 (易错点)】
-                    1. 变量命名差异：
-                       - 在 scale/crop/overlay 中，请使用 'iw' (输入宽) 和 'ih' (输入高)。
-                       - 在 blend/geq 数学表达式中，必须使用 'W' (宽) 和 'H' (高)，严禁使用 'iw'/'ih' 否则会报错。
-                    2. 链式语法：
-                       - 逗号 ',' 表示顺序执行 (先缩放再裁剪)。
-                       - 分号 ';' 表示并行流 (流A做缩放，流B做旋转)。
-                       - 必须显式命名流，例如 [v1], [main], [pip]。
-                    3.稳定性优先：在 filter_complex 中涉及时间动画时，请优先使用帧数变量 n 而非时间变量 T（例如 sin(n/10)）。在 FFmpeg 中，变量 n 和 t（时间）在 overlay、drawtext 或 geq 滤镜中是可用的，但在 blend 滤镜的表达式中是不支持的
-                        变量规范：在 geq/blend 表达式中务必使用 W/H；在 overlay/scale 中务必使用 iw/ih。
-                        遮罩逻辑：实现复杂形状切割请使用 geq 生成黑白遮罩，配合 maskedmerge 滤镜进行三路融合。
-                        geq 滤镜如果没有指定输入源，它会尝试创建一个新的流，但在这种三路并行（原视频、反色视频、遮罩）的结构中，不指定输入的 geq 往往会导致 FilterGraph 无法正确挂载到时间线上。此外，geq 默认需要处理色彩分量，我们必须明确指定只处理亮度 lum。
-                        健壮性：在所有复杂分支后添加 format=yuv420p 以确保 Android 端兼容性。
-                        流管理：严禁重复使用已消耗的流标签，请根据需求准确使用 split 滤镜。
-                    【🚀 推荐的高级命令示例】
-                    1. 左右分屏对比 (左边原色，右边素描):
+                   【高级命令示例】
                        -filter_complex "split[a][b];[b]edgedetect[b_edge];[a]crop=iw/2:ih:0:0[left];[b_edge]crop=iw/2:ih:iw/2:0[right];[left][right]hstack"
                     
-                    2. 动态波浪分界线 (数学曲线遮罩):
                        -filter_complex "split[a][b];[b]negate[b_neg];[a][b_neg]blend=all_expr='if(gt(Y, H/2 + H/10 * sin(X/W*4*PI + T*3)), A, B)'"
                     
-                    3. 画中画 (PIP):
                        -filter_complex "split[main][pip];[pip]scale=iw/4:-1[pip_small];[main][pip_small]overlay=main_w-overlay_w-20:main_h-overlay_h-20"
-                    
-                    4. 赛博朋克故障风:
+                   
                        -filter_complex "split[a][b];[b]rgbashift=rh=-10:bh=10,noise=alls=20:allf=t+u[glitch];[a][glitch]blend=all_expr='if(gt(sin(T*10),0.8),B,A)'"
 
                     【📝 输出格式严格要求】

@@ -7,6 +7,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.bilidownloader.MyApplication
 import com.example.bilidownloader.features.ffmpeg.FfmpegViewModel
+import com.example.bilidownloader.features.home.AuthViewModel
+import com.example.bilidownloader.features.home.HistoryViewModel
 import com.example.bilidownloader.features.home.HomeViewModel
 import com.example.bilidownloader.features.login.LoginViewModel
 import com.example.bilidownloader.features.tools.audiocrop.AudioPickerViewModel
@@ -20,17 +22,36 @@ object AppViewModelProvider {
 
     val Factory = viewModelFactory {
 
-        // --- Home 模块 (原 MainViewModel) ---
+        // --- Home 核心业务模块 ---
         initializer {
             val app = bilidownloaderApplication()
             val container = app.container
             HomeViewModel(
                 application = app,
-                historyRepository = container.historyRepository,
-                authRepository = container.authRepository,
                 homeRepository = container.homeRepository,
                 downloadRepository = container.downloadRepository,
                 subtitleRepository = container.subtitleRepository
+            )
+        }
+
+        // --- 账号管理模块 ---
+        initializer {
+            val app = bilidownloaderApplication()
+            val container = app.container
+            AuthViewModel(
+                application = app,
+                authRepository = container.authRepository
+            )
+        }
+
+        // --- 历史记录模块 ---
+        initializer {
+            val app = bilidownloaderApplication()
+            val container = app.container
+            HistoryViewModel(
+                application = app,
+                historyRepository = container.historyRepository,
+                homeRepository = container.homeRepository
             )
         }
 

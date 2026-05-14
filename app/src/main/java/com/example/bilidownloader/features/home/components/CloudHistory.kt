@@ -26,11 +26,11 @@ import android.widget.Toast
 import coil.compose.AsyncImage
 import com.example.bilidownloader.core.database.UserEntity
 import com.example.bilidownloader.core.model.CloudHistoryItem
-import com.example.bilidownloader.features.home.HomeViewModel
+import com.example.bilidownloader.features.home.HistoryViewModel
 
 @Composable
 fun CloudHistoryContent(
-    viewModel: HomeViewModel,
+    historyViewModel: HistoryViewModel,
     currentUser: UserEntity?,
     cloudHistoryList: List<CloudHistoryItem>,
     isCloudHistoryLoading: Boolean,
@@ -44,7 +44,7 @@ fun CloudHistoryContent(
         snapshotFlow { cloudListState.layoutInfo.visibleItemsInfo }
             .collect { visibleItems ->
                 if (visibleItems.isNotEmpty() && visibleItems.last().index >= cloudHistoryList.size - 3) {
-                    viewModel.loadMoreCloudHistory()
+                    historyViewModel.loadMoreCloudHistory()
                 }
             }
     }
@@ -92,7 +92,7 @@ fun CloudHistoryContent(
                 ) {
                     Text("加载失败", color = MaterialTheme.colorScheme.error)
                     Text(cloudHistoryError, color = MaterialTheme.colorScheme.outline)
-                    Button(onClick = { viewModel.refreshCloudHistory() }) { Text("重试") }
+                    Button(onClick = { historyViewModel.refreshCloudHistory() }) { Text("重试") }
                 }
             }
 

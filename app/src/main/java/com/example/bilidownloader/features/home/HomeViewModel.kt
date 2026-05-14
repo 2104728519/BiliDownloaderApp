@@ -7,33 +7,18 @@ import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.bilidownloader.core.common.Resource
-import com.example.bilidownloader.core.database.HistoryEntity
-import com.example.bilidownloader.core.database.UserEntity
-import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.model.*
-import com.example.bilidownloader.core.network.NetworkModule
 import com.example.bilidownloader.core.util.StorageHelper
-import com.example.bilidownloader.features.login.AuthRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 历史记录的标签页类型枚举.
- */
-enum class HistoryTab {
-    Local, // 本地数据库记录
-    Cloud  // B站账号云端记录
-}
-
-/**
- * 首页 ViewModel.
+ * 首页主业务 ViewModel，负责视频解析、下载调度和字幕转写逻辑。
  */
 class HomeViewModel(
     application: Application,
-    private val historyRepository: HistoryRepository,
-    private val authRepository: AuthRepository,
     private val homeRepository: HomeRepository,
     private val downloadRepository: DownloadRepository,
     private val subtitleRepository: SubtitleRepository
@@ -41,36 +26,6 @@ class HomeViewModel(
 
     private val _state = MutableStateFlow<HomeState>(HomeState.Idle)
     val state = _state.asStateFlow()
-
-    val historyList = historyRepository.allHistory.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
-    val userList = authRepository.allUsers.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
-    private val _currentUser = MutableStateFlow<UserEntity?>(null)
-    val currentUser = _currentUser.asStateFlow()
-
-    private val _historyTab = MutableStateFlow(HistoryTab.Local)
-    val historyTab = _historyTab.asStateFlow()
-
-    private val _cloudHistoryList = MutableStateFlow<List<CloudHistoryItem>>(emptyList())
-    val cloudHistoryList = _cloudHistoryList.asStateFlow()
-
-    private val _isCloudHistoryLoading = MutableStateFlow(false)
-    val isCloudHistoryLoading = _isCloudHistoryLoading.asStateFlow()
-
-    private val _cloudHistoryError = MutableStateFlow<String?>(null)
-    val cloudHistoryError = _cloudHistoryError.asStateFlow()
-
-    private var nextCloudCursor: HistoryCursor? = null
-    private var hasMoreCloudHistory = true
 
     private var currentBvid: String = ""
     private var currentCid: Long = 0L
@@ -116,16 +71,6 @@ class HomeViewModel(
                 }
             }
         }
-        restoreSession()
-        viewModelScope.launch {
-            currentUser.collect { newUser ->
-                _cloudHistoryList.value = emptyList()
-                nextCloudCursor = null
-                hasMoreCloudHistory = true
-                _cloudHistoryError.value = null
-                if (_historyTab.value == HistoryTab.Cloud && newUser != null) refreshCloudHistory()
-            }
-        }
     }
 
     private fun handleDownloadError(msg: String?) {
@@ -136,138 +81,6 @@ class HomeViewModel(
             }
             "CANCELED" -> _state.value = HomeState.Idle
             else -> _state.value = HomeState.Error(msg ?: "失败")
-        }
-    }
-
-    private fun restoreSession() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val activeUser = authRepository.getCurrentUser()
-            if (activeUser != null) {
-                CookieManager.saveCookies(getApplication(), listOf(activeUser.sessData))
-                _currentUser.value = activeUser
-            } else {
-                CookieManager.clearCookies(getApplication())
-                _currentUser.value = null
-            }
-        }
-    }
-
-    fun syncCookieToUserDB() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val localCookie = CookieManager.getCookie(getApplication())
-            if (!localCookie.isNullOrEmpty()) addOrUpdateAccount(localCookie, isSilent = true)
-        }
-    }
-
-    fun addOrUpdateAccount(cookieInput: String, isSilent: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val rawCookie = if (cookieInput.contains("=")) cookieInput else "SESSDATA=$cookieInput"
-                val cookieMap = CookieManager.parseCookieStringToMap(rawCookie)
-                val inputSess = cookieMap["SESSDATA"]
-                if (inputSess.isNullOrEmpty()) {
-                    if (!isSilent) showToast("无效的 Cookie (缺少 SESSDATA)")
-                    return@launch
-                }
-                CookieManager.saveCookies(getApplication(), listOf(rawCookie))
-                val response = NetworkModule.biliService.getSelfInfo().execute()
-                val userData = response.body()?.data
-                if (userData != null && userData.isLogin) {
-                    val inputCsrf = cookieMap["bili_jct"] ?: ""
-                    val finalCsrf = if (inputCsrf.isNotEmpty()) inputCsrf else CookieManager.getCookieValue(getApplication(), "bili_jct") ?: ""
-                    val newUser = UserEntity(
-                        mid = userData.mid,
-                        name = userData.uname,
-                        face = userData.face,
-                        sessData = rawCookie,
-                        biliJct = finalCsrf,
-                        isLogin = true
-                    )
-                    authRepository.clearAllLoginStatus()
-                    authRepository.insertUser(newUser)
-                    _currentUser.value = newUser
-                    if (!isSilent) showToast("登录成功")
-                } else {
-                    if (!isSilent) showToast("验证失败：Cookie 可能已过期")
-                    restoreSession()
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                if (!isSilent) showToast("登录异常: ${e.message}")
-                restoreSession()
-            }
-        }
-    }
-
-    fun switchAccount(user: UserEntity) {
-        viewModelScope.launch(Dispatchers.IO) {
-            authRepository.clearAllLoginStatus()
-            authRepository.setLoginStatus(user.mid)
-            CookieManager.saveCookies(getApplication(), listOf(user.sessData))
-            _currentUser.value = user
-        }
-    }
-
-    fun quitToGuestMode() {
-        viewModelScope.launch(Dispatchers.IO) {
-            authRepository.clearAllLoginStatus()
-            CookieManager.clearCookies(getApplication())
-            _currentUser.value = null
-        }
-    }
-
-    fun logoutAndRemove(user: UserEntity) {
-        viewModelScope.launch(Dispatchers.IO) {
-            authRepository.deleteUser(user)
-            if (currentUser.value?.mid == user.mid) quitToGuestMode()
-        }
-    }
-
-    fun selectHistoryTab(tab: HistoryTab) {
-        if (_historyTab.value == tab) return
-        _historyTab.value = tab
-        if (tab == HistoryTab.Cloud && _cloudHistoryList.value.isEmpty() && currentUser.value != null) refreshCloudHistory()
-    }
-
-    fun refreshCloudHistory() {
-        if (_isCloudHistoryLoading.value) return
-        viewModelScope.launch {
-            _isCloudHistoryLoading.value = true
-            _cloudHistoryError.value = null
-            nextCloudCursor = null
-            hasMoreCloudHistory = true
-            when (val result = homeRepository.fetchCloudHistory(null)) {
-                is Resource.Success -> {
-                    val (list, cursor) = result.data!!
-                    _cloudHistoryList.value = list
-                    nextCloudCursor = cursor
-                    if (cursor == null) hasMoreCloudHistory = false
-                }
-                is Resource.Error -> {
-                    _cloudHistoryError.value = result.message
-                    _cloudHistoryList.value = emptyList()
-                }
-                else -> {}
-            }
-            _isCloudHistoryLoading.value = false
-        }
-    }
-
-    fun loadMoreCloudHistory() {
-        if (_isCloudHistoryLoading.value || !hasMoreCloudHistory) return
-        viewModelScope.launch {
-            _isCloudHistoryLoading.value = true
-            when (val result = homeRepository.fetchCloudHistory(nextCloudCursor)) {
-                is Resource.Success -> {
-                    val (newList, cursor) = result.data!!
-                    _cloudHistoryList.update { it + newList }
-                    nextCloudCursor = cursor
-                    if (cursor == null) hasMoreCloudHistory = false
-                }
-                is Resource.Error -> showToast("加载更多失败: ${result.message}")
-                else -> {}
-            }
-            _isCloudHistoryLoading.value = false
         }
     }
 
@@ -494,9 +307,7 @@ class HomeViewModel(
     }
 
     fun reset() { _state.value = HomeState.Idle }
-    fun deleteHistories(list: List<HistoryEntity>) {
-        viewModelScope.launch(Dispatchers.IO) { historyRepository.deleteList(list) }
-    }
+
     fun updateSelectedVideo(option: FormatOption) {
         savedVideoOption = option
         val cur = _state.value
