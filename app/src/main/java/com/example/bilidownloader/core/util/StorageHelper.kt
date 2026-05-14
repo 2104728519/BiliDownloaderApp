@@ -34,6 +34,18 @@ object StorageHelper {
     }
 
     /**
+     * 从 Uri 获取文件扩展名
+     */
+    fun getExtensionFromUri(context: Context, uri: Uri): String {
+        return if (uri.scheme == "content") {
+            val mime = MimeTypeMap.getSingleton()
+            mime.getExtensionFromMimeType(context.contentResolver.getType(uri)) ?: "mp3"
+        } else {
+            MimeTypeMap.getFileExtensionFromUrl(uri.toString()) ?: "mp3"
+        }
+    }
+
+    /**
      * 将纯文本保存到系统下载文件夹的 Transcription 子目录.
      * 路径：/Downloads/BiliDownloader/Transcription/
      * * @param textContent 要保存的文本内容
@@ -232,10 +244,14 @@ object StorageHelper {
     suspend fun saveAudioToMusic(context: Context, sourceFile: File, fileName: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val mimeType = when {
-                    fileName.endsWith(".flac", ignoreCase = true) -> "audio/flac"
-                    fileName.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"
-                    fileName.endsWith(".m4a", ignoreCase = true) -> "audio/mp4"
+                val extension = fileName.substringAfterLast('.', "").lowercase()
+                val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+                    ?: when (extension) {
+                        "flac" -> "audio/flac"
+                        "mp3" -> "audio/mpeg"
+                        "m4a" -> "audio/mp4"
+                        "aac" -> "audio/aac"
+                        "wav" -> "audio/wav"
                     else -> "audio/mpeg"
                 }
 

@@ -28,7 +28,7 @@ import java.util.Locale
  * 音频裁剪页面.
  *
  * 提供可视化的时间轴滑块 (`RangeSlider`)，允许用户指定音频的起止时间。
- * 支持即时试听选定片段，并将结果导出为 MP3.
+ * 支持即时试听选定片段，并支持快速/精确裁剪模式。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +64,7 @@ fun AudioCropScreen(
     var isEndFocused by remember { mutableStateOf(false) }
     var showDialog by remember { mutableStateOf(false) }
     var saveFileName by remember { mutableStateOf("") }
+    var isPreciseCrop by remember { mutableStateOf(true) } // 默认精确裁剪
 
     // 格式化毫秒为 "MM:ss.SSS"
     fun formatMillis(ms: Long): String {
@@ -142,6 +143,26 @@ fun AudioCropScreen(
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("例如：我的铃声") }
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 裁剪模式选择
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("精确裁剪", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = isPreciseCrop,
+                            onCheckedChange = { isPreciseCrop = it }
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = if (isPreciseCrop) "时间更准 (慢)" else "极速导出 (快)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -151,7 +172,8 @@ fun AudioCropScreen(
                             viewModel.saveCroppedAudio(
                                 saveFileName,
                                 sliderPosition.start,
-                                sliderPosition.endInclusive
+                                sliderPosition.endInclusive,
+                                isPreciseCrop
                             )
                         } else {
                             Toast.makeText(context, "文件名不能为空", Toast.LENGTH_SHORT).show()
@@ -244,7 +266,9 @@ fun AudioCropScreen(
                             }
                         },
                         label = { Text("开始 (分:秒.毫秒)") },
-                        modifier = Modifier.weight(1f).onFocusChanged { isStartFocused = it.isFocused },
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { isStartFocused = it.isFocused },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         textStyle = MaterialTheme.typography.titleMedium
@@ -263,7 +287,9 @@ fun AudioCropScreen(
                             }
                         },
                         label = { Text("结束 (分:秒.毫秒)") },
-                        modifier = Modifier.weight(1f).onFocusChanged { isEndFocused = it.isFocused },
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { isEndFocused = it.isFocused },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         textStyle = MaterialTheme.typography.titleMedium
@@ -300,7 +326,9 @@ fun AudioCropScreen(
 
                     // 进度条显示
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         LinearProgressIndicator(
@@ -309,7 +337,9 @@ fun AudioCropScreen(
                                     (currentRelativeMs.toFloat() / clipDuration.toFloat()).coerceIn(0f, 1f)
                                 } else 0f
                             },
-                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp),
                             trackColor = MaterialTheme.colorScheme.surfaceVariant,
                             color = MaterialTheme.colorScheme.secondary
                         )

@@ -85,24 +85,31 @@ object FFmpegHelper {
     }
 
     /**
-     * 精确裁剪音频.
+     * 裁剪音频.
      *
      * @param startTime 开始时间 (秒).
      * @param duration 持续时长 (秒).
-     * 注意：使用 libmp3lame 重编码以确保裁剪点准确，避免关键帧问题。
+     * @param precise 是否精确裁剪.
+     *        精确模式：重编码以确保切点准确。
+     *        快速模式：使用 -c copy 极速流拷贝，但切点可能偏移。
      */
-    suspend fun trimAudio(inputFile: File, outFile: File, startTime: Double, duration: Double): Boolean {
-        // 格式化时间，保留3位小数
+    suspend fun trimAudio(
+        inputFile: File,
+        outFile: File,
+        startTime: Double,
+        duration: Double,
+        precise: Boolean = true
+    ): Boolean {
         val ss = String.format("%.3f", startTime)
         val t = String.format("%.3f", duration)
 
-        val command = "-y " +
-                "-i \"${inputFile.absolutePath}\" " +
-                "-ss $ss " + // 精确到毫秒级定位
-                "-t $t " +
-                "-acodec libmp3lame " +
-                "-q:a 2 " +
-                "\"${outFile.absolutePath}\""
+        val command = if (precise) {
+            // 精确裁剪：-i 在 -ss 之前，并进行重编码 (不加 -c copy 即重编码)
+            "-y -i \"${inputFile.absolutePath}\" -ss $ss -t $t \"${outFile.absolutePath}\""
+        } else {
+            // 快速裁剪：-ss 在 -i 之前实现快进，使用 -c copy 极速流拷贝
+            "-y -ss $ss -i \"${inputFile.absolutePath}\" -t $t -c copy \"${outFile.absolutePath}\""
+        }
 
         Log.d(TAG, "FFmpeg裁剪命令: $command")
         return runCommand(command)

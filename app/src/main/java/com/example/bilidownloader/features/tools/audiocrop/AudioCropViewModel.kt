@@ -23,8 +23,8 @@ import java.net.URLDecoder
  *
  * 负责：
  * 1. **音频加载**：解析文件元数据，获取时长。
- * 2. **播放控制**：管理 MediaPlayer 实例，支持区间循环播放。
- * 3. **裁剪执行**：调用 FFmpeg 进行精确裁剪。
+ * 2. **播放控制**：管理 MediaPlayer 实例，支持区间循环播放.
+ * 3. **裁剪执行**：调用 FFmpeg 进行裁剪.
  */
 class AudioCropViewModel(application : Application) : AndroidViewModel(application) {
 
@@ -47,7 +47,6 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
 
     /**
      * 停止播放并重置播放器状态.
-     * 必须在页面销毁或重新加载文件时调用.
      */
     fun stopAudio() {
         playbackJob?.cancel()
@@ -96,7 +95,6 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
 
     /**
      * 播放指定区间.
-     * 启动一个协程每 50ms 轮询一次进度，用于更新 UI 进度条。
      */
     fun playRegion(startRatio: Float, endRatio: Float) {
         val player = mediaPlayer ?: return
@@ -138,7 +136,7 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
         }
     }
 
-    fun saveCroppedAudio(fileName: String, startRatio: Float, endRatio: Float) {
+    fun saveCroppedAudio(fileName: String, startRatio: Float, endRatio: Float, precise: Boolean) {
         val path = sourceFilePath ?: return
         val total = _totalDuration.value
         if (total == 0L) return
@@ -149,17 +147,21 @@ class AudioCropViewModel(application : Application) : AndroidViewModel(applicati
                 val context = getApplication<Application>()
                 val cacheDir = context.cacheDir
                 val inputFile = File(path)
-                val outFile = File(cacheDir, "crop_out_${System.currentTimeMillis()}.mp3")
+
+                // 获取原文件后缀
+                val extension = inputFile.extension.let { if (it.isEmpty()) "mp3" else it }
+                val outFile = File(cacheDir, "crop_out_${System.currentTimeMillis()}.$extension")
 
                 val startSec = (total * startRatio) / 1000.0
                 val endSec = (total * endRatio) / 1000.0
                 val durationSec = endSec - startSec
 
-                // 调用 FFmpeg 进行裁剪 (重编码为 MP3 保证兼容性)
-                val cropSuccess = FFmpegHelper.trimAudio(inputFile, outFile, startSec, durationSec)
+                // 调用 FFmpeg 进行裁剪
+                val cropSuccess =
+                    FFmpegHelper.trimAudio(inputFile, outFile, startSec, durationSec, precise)
                 if (!cropSuccess) throw Exception("FFmpeg trimming failed")
 
-                val finalName = if (fileName.endsWith(".mp3", ignoreCase = true)) fileName else "$fileName.mp3"
+                val finalName = if (fileName.contains(".")) fileName else "$fileName.$extension"
                 val saveSuccess = StorageHelper.saveAudioToMusic(context, outFile, finalName)
 
                 if (saveSuccess) {

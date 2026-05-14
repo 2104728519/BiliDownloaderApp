@@ -28,11 +28,6 @@ import java.net.URLEncoder
 
 /**
  * 全局主容器 (Scaffold) 与路由配置中心.
- *
- * 职责：
- * 1. 维护底部导航栏 (Bottom Navigation) 的状态与切换.
- * 2. 定义全 App 的路由表 (NavGraph).
- * 3. 处理页面间的参数传递 (特别是路径和标题的编码传输).
  */
 @Composable
 fun MainScreen() {
@@ -44,7 +39,6 @@ fun MainScreen() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
 
-                // --- 首页 Tab ---
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Home, contentDescription = null) },
                     label = { Text("首页") },
@@ -58,11 +52,9 @@ fun MainScreen() {
                     }
                 )
 
-                // --- 工具 Tab ---
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Build, contentDescription = null) },
                     label = { Text("工具") },
-                    // 只要是 tools 开头或特定工具页面，都高亮该 Tab
                     selected = currentRoute?.startsWith("tools") == true ||
                             currentRoute?.startsWith("ffmpeg_terminal") == true,
                     onClick = {
@@ -81,20 +73,12 @@ fun MainScreen() {
             startDestination = "home",
             modifier = Modifier.padding(innerPadding)
         ) {
-            // ========================================================================
-            // Region: 首页模块
-            // ========================================================================
-
             composable("home") {
                 HomeScreen(
-                    // [关键修改] 接收 path 和 title 两个参数
                     onNavigateToTranscribe = { path, title ->
-                        // URL 编码防止特殊字符 (如 / : ?) 破坏路由结构
                         val encodedPath = URLEncoder.encode(path, "UTF-8")
                         val encodedTitle =
                             if (title.isNotEmpty()) URLEncoder.encode(title, "UTF-8") else ""
-
-                        // 路由跳转：带上 title 参数
                         navController.navigate("transcription/$encodedPath?title=$encodedTitle")
                     },
                     onNavigateToLogin = {
@@ -109,11 +93,6 @@ fun MainScreen() {
                 )
             }
 
-            // ========================================================================
-            // Region: 工具模块
-            // ========================================================================
-
-            // 工具箱主页
             composable("tools") {
                 ToolsScreen(
                     onNavigateToAudioCrop = { navController.navigate("audio_picker") },
@@ -122,7 +101,6 @@ fun MainScreen() {
                 )
             }
 
-            // FFmpeg 万能终端 (支持预设参数 args)
             composable(
                 route = "ffmpeg_terminal?args={args}",
                 arguments = listOf(
@@ -139,14 +117,15 @@ fun MainScreen() {
             }
 
             // --- 音频剪辑流程 ---
-
-            // 1. 选择音频 (剪辑用)
             composable("audio_picker") {
                 val context = LocalContext.current
                 AudioPickerScreen(
                     onBack = { navController.popBackStack() },
                     onAudioSelected = { uri ->
-                        val tempName = "temp_crop_${System.currentTimeMillis()}.mp3"
+                        // 动态获取真实后缀
+                        val extension = StorageHelper.getExtensionFromUri(context, uri)
+                        val tempName = "temp_crop_${System.currentTimeMillis()}.$extension"
+                        
                         val cacheFile = StorageHelper.copyUriToCache(context, uri, tempName)
                         if (cacheFile != null) {
                             val encodedPath = URLEncoder.encode(cacheFile.absolutePath, "UTF-8")
@@ -158,7 +137,6 @@ fun MainScreen() {
                 )
             }
 
-            // 2. 剪辑界面
             composable(
                 route = "audio_crop/{uri}",
                 arguments = listOf(navArgument("uri") { type = NavType.StringType })
@@ -171,20 +149,17 @@ fun MainScreen() {
             }
 
             // --- 语音转写流程 ---
-
-            // 1. 选择音频 (转写用)
             composable("audio_picker_transcribe") {
                 val context = LocalContext.current
                 AudioPickerScreen(
                     onBack = { navController.popBackStack() },
                     onAudioSelected = { uri ->
-                        // 创建临时文件
-                        val tempName = "trans_input_${System.currentTimeMillis()}.mp3"
+                        val extension = StorageHelper.getExtensionFromUri(context, uri)
+                        val tempName = "trans_input_${System.currentTimeMillis()}.$extension"
                         val cacheFile = StorageHelper.copyUriToCache(context, uri, tempName)
 
                         if (cacheFile != null) {
                             val encodedPath = URLEncoder.encode(cacheFile.absolutePath, "UTF-8")
-                            // 从文件管理器选择的音频没有 B 站标题，title 传空
                             navController.navigate("transcription/$encodedPath?title=")
                         } else {
                             Toast.makeText(context, "文件读取失败", Toast.LENGTH_SHORT).show()
@@ -193,8 +168,6 @@ fun MainScreen() {
                 )
             }
 
-            // 2. 转写界面
-            //  路由增加了可选参数 ?title={title}
             composable(
                 route = "transcription/{path}?title={title}",
                 arguments = listOf(
@@ -202,16 +175,15 @@ fun MainScreen() {
                     navArgument("title") {
                         type = NavType.StringType
                         nullable = true
-                        defaultValue = "" // 默认值为空字符串
+                        defaultValue = ""
                     }
                 )
             ) { backStackEntry ->
                 val path = backStackEntry.arguments?.getString("path") ?: ""
                 val title = backStackEntry.arguments?.getString("title") ?: ""
-
                 TranscriptionScreen(
                     filePath = path,
-                    originalTitle = title, // 将标题传递给 UI
+                    originalTitle = title,
                     onBack = { navController.popBackStack() }
                 )
             }
