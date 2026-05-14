@@ -4,11 +4,9 @@ import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bilidownloader.core.manager.CookieManager
 import com.example.bilidownloader.core.model.TranscriptionInput
 import com.example.bilidownloader.core.model.TranscriptionRequest
 import com.example.bilidownloader.core.network.NetworkModule
-import com.example.bilidownloader.core.util.ConsoleScraper
 import com.example.bilidownloader.core.util.OssManager
 import com.example.bilidownloader.core.util.StorageHelper
 import kotlinx.coroutines.Dispatchers
@@ -30,8 +28,7 @@ import java.util.Locale
  * 1. **文件上传**：因阿里云 API 需公网 URL，先将本地文件上传至 OSS 获取签名链接。
  * 2. **异步提交**：调用 API 提交转写任务。
  * 3. **状态轮询**：循环检查任务状态 (PENDING -> RUNNING -> SUCCEEDED)。
- * 4. **配额爬取**：利用 [ConsoleScraper] 爬取用户剩余免费额度。
- * 5. **导出结果**：利用 [StorageHelper] 将文本结果保存至本地。
+ * 4. **导出结果**：利用 [StorageHelper] 将文本结果保存至本地。
  */
 class TranscriptionViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -40,49 +37,11 @@ class TranscriptionViewModel(application: Application) : AndroidViewModel(applic
     private val _uiState = MutableStateFlow<TransState>(TransState.Idle)
     val uiState = _uiState.asStateFlow()
 
-    private val _usageState = MutableStateFlow<UsageState>(UsageState.Loading)
-    val usageState = _usageState.asStateFlow()
-
     sealed class TransState {
         object Idle : TransState()
         data class Processing(val step: String) : TransState()
         data class Success(val text: String) : TransState()
         data class Error(val msg: String) : TransState()
-    }
-
-    sealed class UsageState {
-        object Loading : UsageState()
-        object Idle : UsageState() // 未配置凭证
-        data class Success(val usedMinutes: Double, val totalMinutes: Double = 600.0) : UsageState()
-        data class Error(val msg: String) : UsageState()
-    }
-
-    init {
-        loadUsage()
-    }
-
-    /**
-     * 加载当前用户的阿里云听悟使用额度
-     */
-    fun loadUsage() {
-        viewModelScope.launch {
-            _usageState.value = UsageState.Loading
-            val context = getApplication<Application>()
-            val cookie = CookieManager.getAliyunConsoleCookie(context)
-            val secToken = CookieManager.getAliyunConsoleSecToken(context)
-
-            if (cookie.isNullOrBlank() || secToken.isNullOrBlank()) {
-                _usageState.value = UsageState.Idle
-                return@launch
-            }
-
-            val totalSeconds = ConsoleScraper.getTotalUsageInSeconds(cookie, secToken)
-            if (totalSeconds != null) {
-                _usageState.value = UsageState.Success(usedMinutes = totalSeconds / 60)
-            } else {
-                _usageState.value = UsageState.Error("查询失败，请检查凭证是否过期")
-            }
-        }
     }
 
     /**
